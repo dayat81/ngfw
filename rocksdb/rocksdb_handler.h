@@ -4,7 +4,7 @@
 #include <rocksdb/c.h>
 
 // Initialize RocksDB
-int init_rocksdb(const char *db_path);
+int init_rocksdb(const char *db_path, int reset_db);
 
 // Close RocksDB
 void close_rocksdb(void);

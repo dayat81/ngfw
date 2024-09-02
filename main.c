@@ -785,6 +785,7 @@ main(int argc, char **argv)
 	unsigned nb_ports_in_mask = 0;
 	unsigned int nb_lcores = 0;
 	unsigned int nb_mbufs;
+	int reset_db = 0;  // New flag to indicate if we should reset the database
 
 	/* Init EAL. 8< */
 	ret = rte_eal_init(argc, argv);
@@ -793,8 +794,21 @@ main(int argc, char **argv)
 	argc -= ret;
 	argv += ret;
 
+	// Check for --reset-db parameter
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "--reset-db") == 0) {
+			reset_db = 1;
+			// Remove this argument
+			for (int j = i; j < argc - 1; j++) {
+				argv[j] = argv[j + 1];
+			}
+			argc--;
+			break;
+		}
+	}
+
 	// Initialize RocksDB
-	if (init_rocksdb("/tmp/rocksdb_dns_counter") != 0) {
+	if (init_rocksdb("/tmp/rocksdb_dns_counter", reset_db) != 0) {
 		return 1;
 	}
 

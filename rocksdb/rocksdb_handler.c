@@ -15,7 +15,7 @@ int is_valid_ip(const char *ip_addr) {
     return inet_pton(AF_INET, ip_addr, &(sa.sin_addr)) != 0;
 }
 
-int init_rocksdb(const char *db_path) {
+int init_rocksdb(const char *db_path, int reset_db) {
     options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(options, 1);
     writeoptions = rocksdb_writeoptions_create();
@@ -29,23 +29,25 @@ int init_rocksdb(const char *db_path) {
         return 1;
     }
 
-    // Reset all data in the database
-    rocksdb_iterator_t* it = rocksdb_create_iterator(db, readoptions);
-    rocksdb_iter_seek_to_first(it);
+    if (reset_db) {
+        // Reset all data in the database
+        rocksdb_iterator_t* it = rocksdb_create_iterator(db, readoptions);
+        rocksdb_iter_seek_to_first(it);
 
-    while (rocksdb_iter_valid(it)) {
-        size_t key_len;
-        const char* key = rocksdb_iter_key(it, &key_len);
-        rocksdb_delete(db, writeoptions, key, key_len, &err);
-        if (err != NULL) {
-            fprintf(stderr, "Error deleting key: %s\n", err);
-            free(err);
-            err = NULL;
+        while (rocksdb_iter_valid(it)) {
+            size_t key_len;
+            const char* key = rocksdb_iter_key(it, &key_len);
+            rocksdb_delete(db, writeoptions, key, key_len, &err);
+            if (err != NULL) {
+                fprintf(stderr, "Error deleting key: %s\n", err);
+                free(err);
+                err = NULL;
+            }
+            rocksdb_iter_next(it);
         }
-        rocksdb_iter_next(it);
-    }
 
-    rocksdb_iter_destroy(it);
+        rocksdb_iter_destroy(it);
+    }
 
     return 0;
 }
