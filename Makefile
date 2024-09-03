@@ -5,7 +5,7 @@
 APP = l2fwd
 
 # all source are stored in SRCS-y
-SRCS-y := main.c dns/dns_parser.c rocksdb/rocksdb_handler.c
+SRCS-y := main.c dns/dns_parser.c rocksdb/rocksdb_handler.c socket/socket_handler.c
 
 # Add RocksDB flags
 CFLAGS += $(shell $(PKGCONF) --cflags rocksdb)
