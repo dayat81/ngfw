@@ -222,15 +222,19 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         inet_ntop(AF_INET, &(ip_hdr->src_addr), src_ip, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &(ip_hdr->dst_addr), dst_ip, INET_ADDRSTRLEN);
         
+		uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
         // Check if either source or destination IP is blacklisted
         if (is_ip_blacklisted(src_ip) || is_ip_blacklisted(dst_ip)) {
             // Drop the packet if either IP is blacklisted
             rte_pktmbuf_free(m);
             port_statistics[portid].dropped++;
+            // Count dropped traffic
+            update_dropped_traffic(src_ip, pkt_len);
+            update_dropped_traffic(dst_ip, pkt_len);
             return;
         }
         
-        uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
+        
         update_ip_traffic(src_ip, pkt_len);
         update_ip_traffic(dst_ip, pkt_len);
     }

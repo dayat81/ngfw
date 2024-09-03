@@ -65,12 +65,12 @@ void update_ip_traffic(const char *ip_addr, uint32_t bytes) {
         return;
     }
 
-    char key[16];
+    char key[64];
     char value[32];
     char *err = NULL;
     size_t read_len;
     
-    snprintf(key, sizeof(key), "%s", ip_addr);
+    snprintf(key, sizeof(key), "allowed_traffic_%s", ip_addr);
     
     char *existing_value = rocksdb_get(db, readoptions, key, strlen(key), &read_len, &err);
     if (err != NULL) {
@@ -94,9 +94,37 @@ void update_ip_traffic(const char *ip_addr, uint32_t bytes) {
     }
 }
 
+void update_dropped_traffic(const char *ip_addr, uint32_t bytes) {
+    char key[64];
+    char value[32];
+    char *err = NULL;
+    size_t read_len;
+    
+    snprintf(key, sizeof(key), "dropped_traffic_%s", ip_addr);
+    
+    char *existing_value = rocksdb_get(db, readoptions, key, strlen(key), &read_len, &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error reading dropped traffic from database for IP %s: %s\n", ip_addr, err);
+        free(err);
+        return;
+    }
+    
+    uint64_t total_bytes = bytes;
+    if (existing_value != NULL) {
+        total_bytes += strtoull(existing_value, NULL, 10);
+        free(existing_value);
+    }
+    
+    snprintf(value, sizeof(value), "%lu", total_bytes);
+    
+    rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error writing dropped traffic to database for IP %s: %s\n", ip_addr, err);
+        free(err);
+    }
+}
 
-
-TrafficData* read_all_traffic_data(int* count) {
+TrafficData* read_allowed_traffic_data(int* count) {
     rocksdb_iterator_t* iter = rocksdb_create_iterator(db, readoptions);
     rocksdb_iter_seek_to_first(iter);
 
@@ -116,6 +144,12 @@ TrafficData* read_all_traffic_data(int* count) {
         const char* key = rocksdb_iter_key(iter, &key_len);
         const char* value = rocksdb_iter_value(iter, &value_len);
 
+        // Only process keys that start with "allowed_traffic_"
+        if (strncmp(key, "allowed_traffic_", 16) != 0) {
+            rocksdb_iter_next(iter);
+            continue;
+        }
+
         if (*count >= capacity) {
             capacity *= 2;
             TrafficData* temp = realloc(data, capacity * sizeof(TrafficData));
@@ -128,14 +162,79 @@ TrafficData* read_all_traffic_data(int* count) {
             data = temp;
         }
 
-        // Ensure the key is null-terminated
-        if (key_len >= sizeof(data[*count].ip_addr)) {
-            key_len = sizeof(data[*count].ip_addr) - 1;
+        // Extract IP address from the key
+        const char* ip_start = key + 16; // Skip "allowed_traffic_"
+        size_t ip_len = key_len - 16;
+
+        // Ensure the IP address is null-terminated
+        if (ip_len >= sizeof(data[*count].ip_addr)) {
+            ip_len = sizeof(data[*count].ip_addr) - 1;
         }
-        strncpy(data[*count].ip_addr, key, key_len);
-        data[*count].ip_addr[key_len] = '\0'; // Null-terminate the string
+        strncpy(data[*count].ip_addr, ip_start, ip_len);
+        data[*count].ip_addr[ip_len] = '\0'; // Null-terminate the string
 
         data[*count].bytes = strtoull(value, NULL, 10);
+        data[*count].dropped_bytes = 0; // Not applicable for allowed traffic
+
+        (*count)++;
+        rocksdb_iter_next(iter);
+    }
+
+    rocksdb_iter_destroy(iter);
+    return data;
+}
+
+TrafficData* read_blacklisted_traffic_data(int* count) {
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, readoptions);
+    rocksdb_iter_seek_to_first(iter);
+
+    TrafficData* data = NULL;
+    int capacity = 10;
+    *count = 0;
+
+    data = malloc(capacity * sizeof(TrafficData));
+    if (data == NULL) {
+        fprintf(stderr, "Memory allocation failed\n");
+        rocksdb_iter_destroy(iter);
+        return NULL;
+    }
+
+    while (rocksdb_iter_valid(iter)) {
+        size_t key_len, value_len;
+        const char* key = rocksdb_iter_key(iter, &key_len);
+        const char* value = rocksdb_iter_value(iter, &value_len);
+
+        // Only process keys that start with "dropped_traffic_"
+        if (strncmp(key, "dropped_traffic_", 16) != 0) {
+            rocksdb_iter_next(iter);
+            continue;
+        }
+
+        if (*count >= capacity) {
+            capacity *= 2;
+            TrafficData* temp = realloc(data, capacity * sizeof(TrafficData));
+            if (temp == NULL) {
+                fprintf(stderr, "Memory reallocation failed\n");
+                free(data);
+                rocksdb_iter_destroy(iter);
+                return NULL;
+            }
+            data = temp;
+        }
+
+        // Extract IP address from the key
+        const char* ip_start = key + 16; // Skip "dropped_traffic_"
+        size_t ip_len = key_len - 16;
+
+        // Ensure the IP address is null-terminated
+        if (ip_len >= sizeof(data[*count].ip_addr)) {
+            ip_len = sizeof(data[*count].ip_addr) - 1;
+        }
+        strncpy(data[*count].ip_addr, ip_start, ip_len);
+        data[*count].ip_addr[ip_len] = '\0'; // Null-terminate the string
+
+        data[*count].dropped_bytes = strtoull(value, NULL, 10);
+        data[*count].bytes = 0; // Not applicable for blacklisted traffic
 
         (*count)++;
         rocksdb_iter_next(iter);

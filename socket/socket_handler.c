@@ -75,22 +75,47 @@ void *handle_socket_communication(void *arg) {
         *(end + 1) = 0;
 
         if (strcmp(trimmed_buffer, "get_traffic_data") == 0) {
-            int count;
-            TrafficData* data = read_all_traffic_data(&count);
+            int allowed_count, blacklisted_count;
+            TrafficData* allowed_data = read_allowed_traffic_data(&allowed_count);
+            TrafficData* blacklisted_data = read_blacklisted_traffic_data(&blacklisted_count);
             
-            if (data == NULL) {
+            if (allowed_data == NULL && blacklisted_data == NULL) {
                 snprintf(response, BUFFER_SIZE, "Error reading traffic data");
                 send(new_socket, response, strlen(response), 0);
             } else {
+                // Send allowed traffic data
                 int offset = 0;
-                while (offset < count) {
-                    int remaining = count - offset;
+                while (offset < allowed_count) {
+                    int remaining = allowed_count - offset;
                     int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
                     
                     int written = 0;
+                    written += snprintf(response + written, BUFFER_SIZE - written, "Allowed Traffic:\n");
                     for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
                         written += snprintf(response + written, BUFFER_SIZE - written, 
-                                            "%s: %lu bytes\n", data[offset + i].ip_addr, data[offset + i].bytes);
+                                            "%s: %lu bytes\n", allowed_data[offset + i].ip_addr, allowed_data[offset + i].bytes);
+                    }
+                    
+                    int bytes_sent = send(new_socket, response, written, 0);
+                    if (bytes_sent < 0) {
+                        perror("send");
+                        break;
+                    }
+                    
+                    offset += to_send;
+                }
+
+                // Send blacklisted traffic data
+                offset = 0;
+                while (offset < blacklisted_count) {
+                    int remaining = blacklisted_count - offset;
+                    int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
+                    
+                    int written = 0;
+                    written += snprintf(response + written, BUFFER_SIZE - written, "Blacklisted Traffic:\n");
+                    for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
+                        written += snprintf(response + written, BUFFER_SIZE - written, 
+                                            "%s: %lu bytes (dropped)\n", blacklisted_data[offset + i].ip_addr, blacklisted_data[offset + i].dropped_bytes);
                     }
                     
                     int bytes_sent = send(new_socket, response, written, 0);
@@ -102,7 +127,8 @@ void *handle_socket_communication(void *arg) {
                     offset += to_send;
                 }
                 
-                free(data);
+                free(allowed_data);
+                free(blacklisted_data);
             }
         } else if (strncmp(trimmed_buffer, "blacklist ", 10) == 0) {
             char *ip = trimmed_buffer + 10;
