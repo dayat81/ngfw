@@ -3,4 +3,7 @@ next generation firewall
 # features:
 - [x] parse dns and record domain ip mapping
 - [x] count traffic in bytes
-- [ ] domain filtering
+- [x] blacklist ip addresses
+- [x] domain filtering
+- [ ] ICMP flod detection
+

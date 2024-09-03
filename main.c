@@ -49,7 +49,7 @@
 #include <stdio.h>
 #include <time.h>
 
-#include "dns/dns_parser.h"
+#include "inspection/packet_parser.h"
 #include "counter/counter_handler.h"
 #include "socket/socket_handler.h"
 #include "blacklist/blacklist_handler.h"
@@ -240,7 +240,7 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
     }
 
     // Call the DNS parsing function
-    parse_dns_packet(m);
+    parse_packet(m);
 
     buffer = tx_buffer[dst_port];
     sent = rte_eth_tx_buffer(dst_port, 0, buffer, m);
