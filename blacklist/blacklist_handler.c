@@ -166,6 +166,35 @@ char** get_all_blacklisted_ips(int* count)
     return ip_list;
 }
 
+// New function to clear all blacklisted IPs
+int clear_all_blacklisted_ips(void)
+{
+    if (!blacklist_initialized) {
+        RTE_LOG(ERR, DB, "Blacklist not initialized\n");
+        return -1;
+    }
+
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, readoptions);
+    rocksdb_iter_seek_to_first(iter);
+
+    char *err = NULL;
+    while (rocksdb_iter_valid(iter)) {
+        size_t key_len;
+        const char* key = rocksdb_iter_key(iter, &key_len);
+        rocksdb_delete(db, writeoptions, key, key_len, &err);
+        if (err != NULL) {
+            RTE_LOG(ERR, DB, "Error deleting key: %s\n", err);
+            free(err);
+            err = NULL;
+            // Continue deleting other entries even if one fails
+        }
+        rocksdb_iter_next(iter);
+    }
+
+    rocksdb_iter_destroy(iter);
+    return 0;
+}
+
 void close_blacklist(void)
 {
     if (blacklist_initialized) {

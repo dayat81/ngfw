@@ -31,6 +31,7 @@ def main():
         print("- unblacklist <ip>")
         print("- check_blacklist <ip>")
         print("- show_blacklist")
+        print("- clear_blacklist")  # New command
         return
 
     command = " ".join(sys.argv[1:])

@@ -141,11 +141,23 @@ void handle_show_blacklist(int socket) {
 void handle_unknown_command(int socket) {
     char response[BUFFER_SIZE] = {0};
     snprintf(response, BUFFER_SIZE, "Unknown command. Available commands:\n"
-                                    "- get_traffic_data\n"
+                                    "- get_allowed_traffic\n"
+                                    "- get_blocked_traffic\n"
                                     "- blacklist <ip>\n"
                                     "- unblacklist <ip>\n"
                                     "- check_blacklist <ip>\n"
-                                    "- show_blacklist");
+                                    "- show_blacklist\n"
+                                    "- clear_blacklist");
+    send(socket, response, strlen(response), 0);
+}
+
+void handle_clear_blacklist(int socket) {
+    char response[BUFFER_SIZE] = {0};
+    if (clear_all_blacklisted_ips() == 0) {
+        snprintf(response, BUFFER_SIZE, "All IPs have been removed from the blacklist");
+    } else {
+        snprintf(response, BUFFER_SIZE, "Failed to clear the blacklist");
+    }
     send(socket, response, strlen(response), 0);
 }
 
@@ -215,6 +227,8 @@ void *handle_socket_communication(void *arg) {
             handle_check_blacklist(new_socket, trimmed_buffer + 16);
         } else if (strcmp(trimmed_buffer, "show_blacklist") == 0) {
             handle_show_blacklist(new_socket);
+        } else if (strcmp(trimmed_buffer, "clear_blacklist") == 0) {
+            handle_clear_blacklist(new_socket);
         } else {
             handle_unknown_command(new_socket);
         }
