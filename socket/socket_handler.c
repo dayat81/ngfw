@@ -20,6 +20,126 @@ extern volatile bool force_quit;
 
 #define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
+void handle_get_traffic_data(int socket) {
+    int allowed_count, blacklisted_count;
+    TrafficData* allowed_data = read_allowed_traffic_data(&allowed_count);
+    TrafficData* blacklisted_data = read_blacklisted_traffic_data(&blacklisted_count);
+    char response[BUFFER_SIZE] = {0};
+    
+    if (allowed_data == NULL && blacklisted_data == NULL) {
+        snprintf(response, BUFFER_SIZE, "Error reading traffic data");
+        send(socket, response, strlen(response), 0);
+    } else {
+        // Send allowed traffic data
+        int offset = 0;
+        while (offset < allowed_count) {
+            int remaining = allowed_count - offset;
+            int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
+            
+            int written = 0;
+            written += snprintf(response + written, BUFFER_SIZE - written, "Allowed Traffic:\n");
+            for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
+                written += snprintf(response + written, BUFFER_SIZE - written, 
+                                    "%s: %lu bytes\n", allowed_data[offset + i].ip_addr, allowed_data[offset + i].bytes);
+            }
+            
+            int bytes_sent = send(socket, response, written, 0);
+            if (bytes_sent < 0) {
+                perror("send");
+                break;
+            }
+            
+            offset += to_send;
+        }
+
+        // Send blacklisted traffic data
+        offset = 0;
+        while (offset < blacklisted_count) {
+            int remaining = blacklisted_count - offset;
+            int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
+            
+            int written = 0;
+            written += snprintf(response + written, BUFFER_SIZE - written, "Blacklisted Traffic:\n");
+            for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
+                written += snprintf(response + written, BUFFER_SIZE - written, 
+                                    "%s: %lu bytes (dropped)\n", blacklisted_data[offset + i].ip_addr, blacklisted_data[offset + i].dropped_bytes);
+            }
+            
+            int bytes_sent = send(socket, response, written, 0);
+            if (bytes_sent < 0) {
+                perror("send");
+                break;
+            }
+            
+            offset += to_send;
+        }
+        
+        free(allowed_data);
+        free(blacklisted_data);
+    }
+}
+
+void handle_blacklist(int socket, const char *ip) {
+    char response[BUFFER_SIZE] = {0};
+    if (add_to_blacklist(ip) == 0) {
+        snprintf(response, BUFFER_SIZE, "IP %s added to blacklist", ip);
+    } else {
+        snprintf(response, BUFFER_SIZE, "Failed to add IP %s to blacklist", ip);
+    }
+    send(socket, response, strlen(response), 0);
+}
+
+void handle_unblacklist(int socket, const char *ip) {
+    char response[BUFFER_SIZE] = {0};
+    if (remove_from_blacklist(ip) == 0) {
+        snprintf(response, BUFFER_SIZE, "IP %s removed from blacklist", ip);
+    } else {
+        snprintf(response, BUFFER_SIZE, "Failed to remove IP %s from blacklist", ip);
+    }
+    send(socket, response, strlen(response), 0);
+}
+
+void handle_check_blacklist(int socket, const char *ip) {
+    char response[BUFFER_SIZE] = {0};
+    if (is_ip_blacklisted(ip)) {
+        snprintf(response, BUFFER_SIZE, "IP %s is blacklisted", ip);
+    } else {
+        snprintf(response, BUFFER_SIZE, "IP %s is not blacklisted", ip);
+    }
+    send(socket, response, strlen(response), 0);
+}
+
+void handle_show_blacklist(int socket) {
+    char response[BUFFER_SIZE] = {0};
+    int count;
+    char **blacklisted_ips = get_all_blacklisted_ips(&count);
+    
+    if (blacklisted_ips == NULL) {
+        snprintf(response, BUFFER_SIZE, "Error retrieving blacklisted IPs");
+    } else if (count == 0) {
+        snprintf(response, BUFFER_SIZE, "No IPs are currently blacklisted");
+    } else {
+        int written = snprintf(response, BUFFER_SIZE, "Blacklisted IPs:\n");
+        for (int i = 0; i < count && written < BUFFER_SIZE; i++) {
+            written += snprintf(response + written, BUFFER_SIZE - written, "%s\n", blacklisted_ips[i]);
+            free(blacklisted_ips[i]);
+        }
+        free(blacklisted_ips);
+    }
+    send(socket, response, strlen(response), 0);
+}
+
+void handle_unknown_command(int socket) {
+    char response[BUFFER_SIZE] = {0};
+    snprintf(response, BUFFER_SIZE, "Unknown command. Available commands:\n"
+                                    "- get_traffic_data\n"
+                                    "- blacklist <ip>\n"
+                                    "- unblacklist <ip>\n"
+                                    "- check_blacklist <ip>\n"
+                                    "- show_blacklist");
+    send(socket, response, strlen(response), 0);
+}
+
 void *handle_socket_communication(void *arg) {
     int server_fd, new_socket;
     struct sockaddr_in address;
@@ -75,110 +195,17 @@ void *handle_socket_communication(void *arg) {
         *(end + 1) = 0;
 
         if (strcmp(trimmed_buffer, "get_traffic_data") == 0) {
-            int allowed_count, blacklisted_count;
-            TrafficData* allowed_data = read_allowed_traffic_data(&allowed_count);
-            TrafficData* blacklisted_data = read_blacklisted_traffic_data(&blacklisted_count);
-            
-            if (allowed_data == NULL && blacklisted_data == NULL) {
-                snprintf(response, BUFFER_SIZE, "Error reading traffic data");
-                send(new_socket, response, strlen(response), 0);
-            } else {
-                // Send allowed traffic data
-                int offset = 0;
-                while (offset < allowed_count) {
-                    int remaining = allowed_count - offset;
-                    int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
-                    
-                    int written = 0;
-                    written += snprintf(response + written, BUFFER_SIZE - written, "Allowed Traffic:\n");
-                    for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
-                        written += snprintf(response + written, BUFFER_SIZE - written, 
-                                            "%s: %lu bytes\n", allowed_data[offset + i].ip_addr, allowed_data[offset + i].bytes);
-                    }
-                    
-                    int bytes_sent = send(new_socket, response, written, 0);
-                    if (bytes_sent < 0) {
-                        perror("send");
-                        break;
-                    }
-                    
-                    offset += to_send;
-                }
-
-                // Send blacklisted traffic data
-                offset = 0;
-                while (offset < blacklisted_count) {
-                    int remaining = blacklisted_count - offset;
-                    int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
-                    
-                    int written = 0;
-                    written += snprintf(response + written, BUFFER_SIZE - written, "Blacklisted Traffic:\n");
-                    for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
-                        written += snprintf(response + written, BUFFER_SIZE - written, 
-                                            "%s: %lu bytes (dropped)\n", blacklisted_data[offset + i].ip_addr, blacklisted_data[offset + i].dropped_bytes);
-                    }
-                    
-                    int bytes_sent = send(new_socket, response, written, 0);
-                    if (bytes_sent < 0) {
-                        perror("send");
-                        break;
-                    }
-                    
-                    offset += to_send;
-                }
-                
-                free(allowed_data);
-                free(blacklisted_data);
-            }
+            handle_get_traffic_data(new_socket);
         } else if (strncmp(trimmed_buffer, "blacklist ", 10) == 0) {
-            char *ip = trimmed_buffer + 10;
-            if (add_to_blacklist(ip) == 0) {
-                snprintf(response, BUFFER_SIZE, "IP %s added to blacklist", ip);
-            } else {
-                snprintf(response, BUFFER_SIZE, "Failed to add IP %s to blacklist", ip);
-            }
-            send(new_socket, response, strlen(response), 0);
+            handle_blacklist(new_socket, trimmed_buffer + 10);
         } else if (strncmp(trimmed_buffer, "unblacklist ", 12) == 0) {
-            char *ip = trimmed_buffer + 12;
-            if (remove_from_blacklist(ip) == 0) {
-                snprintf(response, BUFFER_SIZE, "IP %s removed from blacklist", ip);
-            } else {
-                snprintf(response, BUFFER_SIZE, "Failed to remove IP %s from blacklist", ip);
-            }
-            send(new_socket, response, strlen(response), 0);
+            handle_unblacklist(new_socket, trimmed_buffer + 12);
         } else if (strncmp(trimmed_buffer, "check_blacklist ", 16) == 0) {
-            char *ip = trimmed_buffer + 16;
-            if (is_ip_blacklisted(ip)) {
-                snprintf(response, BUFFER_SIZE, "IP %s is blacklisted", ip);
-            } else {
-                snprintf(response, BUFFER_SIZE, "IP %s is not blacklisted", ip);
-            }
-            send(new_socket, response, strlen(response), 0);
+            handle_check_blacklist(new_socket, trimmed_buffer + 16);
         } else if (strcmp(trimmed_buffer, "show_blacklist") == 0) {
-            int count;
-            char **blacklisted_ips = get_all_blacklisted_ips(&count);
-            
-            if (blacklisted_ips == NULL) {
-                snprintf(response, BUFFER_SIZE, "Error retrieving blacklisted IPs");
-            } else if (count == 0) {
-                snprintf(response, BUFFER_SIZE, "No IPs are currently blacklisted");
-            } else {
-                int written = snprintf(response, BUFFER_SIZE, "Blacklisted IPs:\n");
-                for (int i = 0; i < count && written < BUFFER_SIZE; i++) {
-                    written += snprintf(response + written, BUFFER_SIZE - written, "%s\n", blacklisted_ips[i]);
-                    free(blacklisted_ips[i]);
-                }
-                free(blacklisted_ips);
-            }
-            send(new_socket, response, strlen(response), 0);
+            handle_show_blacklist(new_socket);
         } else {
-            snprintf(response, BUFFER_SIZE, "Unknown command. Available commands:\n"
-                                            "- get_traffic_data\n"
-                                            "- blacklist <ip>\n"
-                                            "- unblacklist <ip>\n"
-                                            "- check_blacklist <ip>\n"
-                                            "- show_blacklist");
-            send(new_socket, response, strlen(response), 0);
+            handle_unknown_command(new_socket);
         }
         close(new_socket);
     }
