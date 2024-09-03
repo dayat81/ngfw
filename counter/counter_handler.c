@@ -243,3 +243,97 @@ TrafficData* read_blacklisted_traffic_data(int* count) {
     rocksdb_iter_destroy(iter);
     return data;
 }
+
+void update_icmp_packets(const char *ip_addr) {
+    if (!is_valid_ip(ip_addr)) {
+        fprintf(stderr, "Invalid IP address format: %s\n", ip_addr);
+        return;
+    }
+
+    char key[64];
+    char value[32];
+    char *err = NULL;
+    size_t read_len;
+    
+    snprintf(key, sizeof(key), "icmp_packets_%s", ip_addr);
+    
+    char *existing_value = rocksdb_get(db, readoptions, key, strlen(key), &read_len, &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error reading ICMP packet count from database: %s\n", err);
+        free(err);
+        return;
+    }
+    
+    uint64_t total_packets = 1;
+    if (existing_value != NULL) {
+        total_packets += strtoull(existing_value, NULL, 10);
+        free(existing_value);
+    }
+    
+    snprintf(value, sizeof(value), "%lu", total_packets);
+    
+    rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error writing ICMP packet count to database: %s\n", err);
+        free(err);
+    }
+}
+
+ICMPData* read_icmp_packet_data(int* count) {
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, readoptions);
+    rocksdb_iter_seek_to_first(iter);
+
+    ICMPData* data = NULL;
+    int capacity = 10;
+    *count = 0;
+
+    data = malloc(capacity * sizeof(ICMPData));
+    if (data == NULL) {
+        fprintf(stderr, "Memory allocation failed\n");
+        rocksdb_iter_destroy(iter);
+        return NULL;
+    }
+
+    while (rocksdb_iter_valid(iter)) {
+        size_t key_len, value_len;
+        const char* key = rocksdb_iter_key(iter, &key_len);
+        const char* value = rocksdb_iter_value(iter, &value_len);
+
+        // Only process keys that start with "icmp_packets_"
+        if (strncmp(key, "icmp_packets_", 13) != 0) {
+            rocksdb_iter_next(iter);
+            continue;
+        }
+
+        if (*count >= capacity) {
+            capacity *= 2;
+            ICMPData* temp = realloc(data, capacity * sizeof(ICMPData));
+            if (temp == NULL) {
+                fprintf(stderr, "Memory reallocation failed\n");
+                free(data);
+                rocksdb_iter_destroy(iter);
+                return NULL;
+            }
+            data = temp;
+        }
+
+        // Extract IP address from the key
+        const char* ip_start = key + 13; // Skip "icmp_packets_"
+        size_t ip_len = key_len - 13;
+
+        // Ensure the IP address is null-terminated
+        if (ip_len >= sizeof(data[*count].ip_addr)) {
+            ip_len = sizeof(data[*count].ip_addr) - 1;
+        }
+        strncpy(data[*count].ip_addr, ip_start, ip_len);
+        data[*count].ip_addr[ip_len] = '\0'; // Null-terminate the string
+
+        data[*count].packet_count = strtoull(value, NULL, 10);
+
+        (*count)++;
+        rocksdb_iter_next(iter);
+    }
+
+    rocksdb_iter_destroy(iter);
+    return data;
+}

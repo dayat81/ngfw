@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <arpa/inet.h>
@@ -9,9 +8,8 @@
 #include <rte_ip.h>
 #include <rte_udp.h>
 #include <rte_mbuf.h>
-#include <rte_icmp.h>
 #include "packet_parser.h"
-
+#include "../counter/counter_handler.h"
 #define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
 
@@ -127,8 +125,13 @@ void parse_packet(struct rte_mbuf *m) {
             // ICMP packet detected
             struct rte_icmp_hdr *icmp_hdr = (struct rte_icmp_hdr *)(ip_hdr + 1);
             // Add your ICMP processing logic here
-            RTE_LOG(INFO, L2FWD, "ICMP packet detected: type %d, code %d\n", 
-                    icmp_hdr->icmp_type, icmp_hdr->icmp_code);
+            
+            // Convert IP address to string
+            char ip_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(ip_hdr->src_addr), ip_str, INET_ADDRSTRLEN);
+            
+            // Update ICMP packets counter
+            update_icmp_packets(ip_str);
         }
     }
 }

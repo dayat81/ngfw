@@ -143,6 +143,7 @@ void handle_unknown_command(int socket) {
     snprintf(response, BUFFER_SIZE, "Unknown command. Available commands:\n"
                                     "- get_allowed_traffic\n"
                                     "- get_blocked_traffic\n"
+                                    "- get_icmp_data\n"
                                     "- blacklist <ip>\n"
                                     "- unblacklist <ip>\n"
                                     "- check_blacklist <ip>\n"
@@ -159,6 +160,40 @@ void handle_clear_blacklist(int socket) {
         snprintf(response, BUFFER_SIZE, "Failed to clear the blacklist");
     }
     send(socket, response, strlen(response), 0);
+}
+
+void handle_get_icmp_data(int socket) {
+    int icmp_count;
+    ICMPData* icmp_data = read_icmp_packet_data(&icmp_count);
+    char response[BUFFER_SIZE] = {0};
+    
+    if (icmp_data == NULL) {
+        snprintf(response, BUFFER_SIZE, "Error reading ICMP packet data");
+        send(socket, response, strlen(response), 0);
+    } else {
+        int offset = 0;
+        while (offset < icmp_count) {
+            int remaining = icmp_count - offset;
+            int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
+            
+            int written = 0;
+            written += snprintf(response + written, BUFFER_SIZE - written, "ICMP Packet Data:\n");
+            for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
+                written += snprintf(response + written, BUFFER_SIZE - written, 
+                                    "%s: %lu packets\n", icmp_data[offset + i].ip_addr, icmp_data[offset + i].packet_count);
+            }
+            
+            int bytes_sent = send(socket, response, written, 0);
+            if (bytes_sent < 0) {
+                perror("send");
+                break;
+            }
+            
+            offset += to_send;
+        }
+        
+        free(icmp_data);
+    }
 }
 
 void *handle_socket_communication(void *arg) {
@@ -229,6 +264,8 @@ void *handle_socket_communication(void *arg) {
             handle_show_blacklist(new_socket);
         } else if (strcmp(trimmed_buffer, "clear_blacklist") == 0) {
             handle_clear_blacklist(new_socket);
+        } else if (strcmp(trimmed_buffer, "get_icmp_data") == 0) {
+            handle_get_icmp_data(new_socket);
         } else {
             handle_unknown_command(new_socket);
         }

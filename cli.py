@@ -32,6 +32,7 @@ def main():
         print("- check_blacklist <ip>")
         print("- show_blacklist")
         print("- clear_blacklist")  # New command
+        print("- get_icmp_data")
         return
 
     command = " ".join(sys.argv[1:])
