@@ -108,16 +108,20 @@ void parse_dns_packet(struct rte_mbuf *m) {
                     while (*dns_data != 0) dns_data++;
                     dns_data += 5;  // Skip null byte, QTYPE, and QCLASS
 
-                    // Parse answer section
-                    uint16_t answer_type = (dns_data[2] << 8) | dns_data[3];
-                    dns_data += 10;  // Skip NAME, TYPE, CLASS, TTL
-                    uint16_t data_len = (dns_data[0] << 8) | dns_data[1];
-                    dns_data += 2;
+                    // Parse all answers
+                    for (int i = 0; i < ancount; i++) {
+                        uint16_t answer_type = (dns_data[2] << 8) | dns_data[3];
+                        dns_data += 10;  // Skip NAME, TYPE, CLASS, TTL
+                        uint16_t data_len = (dns_data[0] << 8) | dns_data[1];
+                        dns_data += 2;
 
-                    if (answer_type == 1 && data_len == 4) {  // A record (IPv4)
-                        struct in_addr ip_addr;
-                        memcpy(&ip_addr, dns_data, 4);
-                        log_dns_mapping(domain_name, inet_ntoa(ip_addr));
+                        if (answer_type == 1 && data_len == 4) {  // A record (IPv4)
+                            struct in_addr ip_addr;
+                            memcpy(&ip_addr, dns_data, 4);
+                            log_dns_mapping(domain_name, inet_ntoa(ip_addr));
+                        }
+
+                        dns_data += data_len;  // Move to the next answer
                     }
                 }
             }
