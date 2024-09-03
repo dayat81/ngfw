@@ -25,7 +25,8 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python cli.py <command>")
         print("Available commands:")
-        print("- get_traffic_data")
+        print("- get_allowed_traffic")
+        print("- get_blocked_traffic")
         print("- blacklist <ip>")
         print("- unblacklist <ip>")
         print("- check_blacklist <ip>")
