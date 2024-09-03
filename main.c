@@ -50,8 +50,9 @@
 #include <time.h>
 
 #include "dns/dns_parser.h"
-#include "rocksdb/rocksdb_handler.h"
+#include "counter/counter_handler.h"
 #include "socket/socket_handler.h"
+#include "blacklist/blacklist_handler.h"
 
 volatile bool force_quit = false;
 
@@ -221,9 +222,15 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         inet_ntop(AF_INET, &(ip_hdr->src_addr), src_ip, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &(ip_hdr->dst_addr), dst_ip, INET_ADDRSTRLEN);
         
+        // Check if either source or destination IP is blacklisted
+        if (is_ip_blacklisted(src_ip) || is_ip_blacklisted(dst_ip)) {
+            // Drop the packet if either IP is blacklisted
+            rte_pktmbuf_free(m);
+            port_statistics[portid].dropped++;
+            return;
+        }
+        
         uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
-        // Log IP addresses and packet length
-        //RTE_LOG(INFO, L2FWD, "Packet: src_ip=%s, dst_ip=%s, length=%u\n", src_ip, dst_ip, pkt_len);
         update_ip_traffic(src_ip, pkt_len);
         update_ip_traffic(dst_ip, pkt_len);
     }
@@ -727,6 +734,12 @@ main(int argc, char **argv)
 		return 1;
 	}
 
+	// Initialize blacklist
+	if (init_blacklist("/tmp/blacklist.db", reset_db) != 0) {
+		close_rocksdb();
+		return 1;
+	}
+
 	force_quit = false;
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
@@ -997,6 +1010,9 @@ main(int argc, char **argv)
 	}
 
 	close_dns_log_file();
+
+	// Clean up the blacklist
+	close_blacklist();
 
 	/* clean up the EAL */
 	rte_eal_cleanup();
