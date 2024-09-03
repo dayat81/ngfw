@@ -9,11 +9,15 @@
 #include <stdbool.h>
 #include "socket_handler.h"
 #include "../rocksdb/rocksdb_handler.h"
+#include <rte_log.h>
+#include <ctype.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
 
 extern volatile bool force_quit;
+
+#define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
 void *handle_socket_communication(void *arg) {
     int server_fd, new_socket;
@@ -54,35 +58,53 @@ void *handle_socket_communication(void *arg) {
             continue;
         }
 
-        // Process the command using the new command handler
-        int count;
-        TrafficData* data = read_all_traffic_data(&count);
+        int valread = read(new_socket, buffer, BUFFER_SIZE);
+        RTE_LOG(INFO, L2FWD, "Received command: %s\n", buffer);
+
+        // Process the command only if it's "get_traffic_data"
+        // Remove newline character if present
+        buffer[strcspn(buffer, "\n")] = 0;
         
-        if (data == NULL) {
-            snprintf(response, BUFFER_SIZE, "Error reading traffic data");
-            send(new_socket, response, strlen(response), 0);
-        } else {
-            int offset = 0;
-            while (offset < count) {
-                int remaining = count - offset;
-                int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
-                
-                int written = 0;
-                for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
-                    written += snprintf(response + written, BUFFER_SIZE - written, 
-                                        "%s: %lu bytes\n", data[offset + i].ip_addr, data[offset + i].bytes);
-                }
-                
-                int bytes_sent = send(new_socket, response, written, 0);
-                if (bytes_sent < 0) {
-                    perror("send");
-                    break;
-                }
-                
-                offset += to_send;
-            }
+        // Trim leading and trailing whitespace
+        char *trimmed_buffer = buffer;
+        while (isspace(*trimmed_buffer)) trimmed_buffer++;
+        char *end = trimmed_buffer + strlen(trimmed_buffer) - 1;
+        while (end > trimmed_buffer && isspace(*end)) end--;
+        *(end + 1) = 0;
+
+        if (strcmp(trimmed_buffer, "get_traffic_data") == 0) {
+            int count;
+            TrafficData* data = read_all_traffic_data(&count);
             
-            free(data);
+            if (data == NULL) {
+                snprintf(response, BUFFER_SIZE, "Error reading traffic data");
+                send(new_socket, response, strlen(response), 0);
+            } else {
+                int offset = 0;
+                while (offset < count) {
+                    int remaining = count - offset;
+                    int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
+                    
+                    int written = 0;
+                    for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
+                        written += snprintf(response + written, BUFFER_SIZE - written, 
+                                            "%s: %lu bytes\n", data[offset + i].ip_addr, data[offset + i].bytes);
+                    }
+                    
+                    int bytes_sent = send(new_socket, response, written, 0);
+                    if (bytes_sent < 0) {
+                        perror("send");
+                        break;
+                    }
+                    
+                    offset += to_send;
+                }
+                
+                free(data);
+            }
+        } else {
+            snprintf(response, BUFFER_SIZE, "Unknown command. Use 'get_traffic_data' to retrieve traffic information.");
+            send(new_socket, response, strlen(response), 0);
         }
         close(new_socket);
     }
