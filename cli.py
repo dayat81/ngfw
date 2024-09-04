@@ -65,13 +65,18 @@ def monitor_delta_icmp():
         
         for ip, count in current_icmp.items():
             delta = count - previous_icmp.get(ip, 0)
-            delta_icmp[ip] = delta
+            if delta > 0:
+                delta_icmp[ip] = delta
+                if delta > 100:
+                    print(f"Blacklisting {ip} due to high ICMP traffic (delta: {delta})")
+                    send_command(f"blacklist {ip}")
         
-        print(f"Delta ICMP traffic in the last minute:")
-        # Sort delta_icmp by value (delta) in descending order
-        sorted_delta = sorted(delta_icmp.items(), key=lambda x: x[1], reverse=True)
-        for ip, delta in sorted_delta:
-            print(f"{ip}: {delta}")
+        if delta_icmp:
+            print(f"Delta ICMP traffic in the last 10 seconds (only positive changes):")
+            # Sort delta_icmp by value (delta) in descending order
+            sorted_delta = sorted(delta_icmp.items(), key=lambda x: x[1], reverse=True)
+            for ip, delta in sorted_delta:
+                print(f"{ip}: {delta}")
         
         previous_icmp = current_icmp
         time.sleep(10)
