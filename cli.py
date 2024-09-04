@@ -30,16 +30,18 @@ def monitor_delta_traffic():
         
         for ip, count in current_traffic.items():
             delta = count - previous_traffic.get(ip, 0)
-            delta_traffic[ip] = delta
+            if delta > 0:
+                delta_traffic[ip] = delta
         
-        print(f"Delta traffic in the last minute:")
-        # Sort delta_traffic by value (delta) in descending order
-        sorted_delta = sorted(delta_traffic.items(), key=lambda x: x[1], reverse=True)
-        for ip, delta in sorted_delta:
-            print(f"{ip}: {delta}")
+        if delta_traffic:
+            print(f"Delta traffic in the last 15 seconds (only positive changes):")
+            # Sort delta_traffic by value (delta) in descending order
+            sorted_delta = sorted(delta_traffic.items(), key=lambda x: x[1], reverse=True)
+            for ip, delta in sorted_delta:
+                print(f"{ip}: {delta}")
         
         previous_traffic = current_traffic
-        time.sleep(60)
+        time.sleep(15)
 
 def get_allowed_traffic():
     response = send_command("get_allowed_traffic")

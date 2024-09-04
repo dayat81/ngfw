@@ -5,5 +5,6 @@ next generation firewall
 - [x] count traffic in bytes
 - [x] blacklist ip addresses
 - [x] domain filtering
-- [ ] ICMP flod detection
+- [x] ICMP flod detection
+- [ ] visualisation
 
