@@ -57,6 +57,40 @@ def get_allowed_traffic():
 
     return traffic
 
+def monitor_delta_icmp():
+    previous_icmp = {}
+    while True:
+        current_icmp = get_icmp_data()
+        delta_icmp = {}
+        
+        for ip, count in current_icmp.items():
+            delta = count - previous_icmp.get(ip, 0)
+            delta_icmp[ip] = delta
+        
+        print(f"Delta ICMP traffic in the last minute:")
+        # Sort delta_icmp by value (delta) in descending order
+        sorted_delta = sorted(delta_icmp.items(), key=lambda x: x[1], reverse=True)
+        for ip, delta in sorted_delta:
+            print(f"{ip}: {delta}")
+        
+        previous_icmp = current_icmp
+        time.sleep(10)
+
+def get_icmp_data():
+    response = send_command("get_icmp_data")
+    icmp_data = {}
+    for line in response.split('\n'):
+        if ':' in line:
+            ip, count = line.split(':', 1)
+            ip = ip.strip()
+            try:
+                # Extract the number before "packets" and convert to int
+                count = int(count.strip().split()[0])
+                icmp_data[ip] = count
+            except (ValueError, IndexError):
+                print(f"Warning: Could not parse line: {line}")
+    return icmp_data
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python cli.py <command>")
@@ -70,11 +104,14 @@ def main():
         print("- clear_blacklist")  # New command
         print("- get_icmp_data")
         print("- monitor_delta_traffic")
+        print("- monitor_delta_icmp")  # New command
         return
 
     command = sys.argv[1]
     if command == "monitor_delta_traffic":
         monitor_delta_traffic()
+    elif command == "monitor_delta_icmp":
+        monitor_delta_icmp()
     else:
         command = " ".join(sys.argv[1:])
         response = send_command(command)
