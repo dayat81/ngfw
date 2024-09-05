@@ -80,8 +80,21 @@ def blacklist_ip_addresses_for_domain(domain):
         return
     
     for ip in ip_addresses:
-        result = subprocess.run(['python3', 'cli.py', 'blacklist', ip], capture_output=True, text=True)
+        result = subprocess.run(['python3', 'cli.py', 'blacklist', '--ip ', ip], capture_output=True, text=True)
         print(f"Blacklisting {ip}: {result.stdout.strip()}")
+
+def blacklist_domains_containing(substring):
+    results = get_ip_addresses_for_domain_containing(substring)
+    
+    if not results:
+        print(f"No domains found containing '{substring}'")
+        return
+    
+    for domain, ip_addresses in results.items():
+        print(f"Blacklisting IPs for domain: {domain}")
+        for ip in ip_addresses:
+            result = subprocess.run(['python3', 'cli.py', 'blacklist', '--ip', ip], capture_output=True, text=True)
+            print(f"  Blacklisting {ip}: {result.stdout.strip()}")
 
 def main():
     if len(sys.argv) < 2:
@@ -91,6 +104,7 @@ def main():
         print("- get_ip_addresses_for_domain <domain>")
         print("- get_ip_addresses_for_domain_containing <substring>")
         print("- blacklist_domain <domain>")
+        print("- blacklist_domains_containing <substring>")
         return
 
     command = sys.argv[1]
@@ -129,6 +143,12 @@ def main():
             return
         domain = sys.argv[2]
         blacklist_ip_addresses_for_domain(domain)
+    elif command == "blacklist_domains_containing":
+        if len(sys.argv) < 3:
+            print("Error: Please provide a substring to search for in domain names.")
+            return
+        substring = sys.argv[2]
+        blacklist_domains_containing(substring)
     else:
         print(f"Error: Unknown command '{command}'")
 

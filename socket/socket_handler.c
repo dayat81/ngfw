@@ -11,6 +11,7 @@
 #include "../counter/counter_handler.h"
 #include <ctype.h>
 #include "../blacklist/blacklist_handler.h"
+#include <inttypes.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
@@ -37,7 +38,7 @@ void handle_get_allowed_traffic_data(int socket) {
             written += snprintf(response + written, BUFFER_SIZE - written, "Allowed Traffic:\n");
             for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
                 written += snprintf(response + written, BUFFER_SIZE - written, 
-                                    "%s: %lu bytes\n", allowed_data[offset + i].ip_addr, allowed_data[offset + i].bytes);
+                                    "%s: %"PRIu64" bytes\n", allowed_data[offset + i].ip_addr, allowed_data[offset + i].bytes);
             }
             
             int bytes_sent = send(socket, response, written, 0);
@@ -71,7 +72,7 @@ void handle_get_blocked_traffic_data(int socket) {
             written += snprintf(response + written, BUFFER_SIZE - written, "Blocked Traffic:\n");
             for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
                 written += snprintf(response + written, BUFFER_SIZE - written, 
-                                    "%s: %lu bytes (dropped)\n", blacklisted_data[offset + i].ip_addr, blacklisted_data[offset + i].dropped_bytes);
+                                    "%s: %"PRIu64" bytes\n", blacklisted_data[offset + i].ip_addr, blacklisted_data[offset + i].bytes);
             }
             
             int bytes_sent = send(socket, response, written, 0);

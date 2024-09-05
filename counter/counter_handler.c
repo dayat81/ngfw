@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <arpa/inet.h> // Add this include for inet_pton
+#include <inttypes.h>
+#include <rte_log.h>
+
+#define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
 static rocksdb_t *db;
 static rocksdb_options_t *options;
@@ -85,7 +89,7 @@ void update_ip_traffic(const char *ip_addr, uint32_t bytes) {
         free(existing_value);
     }
     
-    snprintf(value, sizeof(value), "%lu", total_bytes);
+    snprintf(value, sizeof(value), "%" PRIu64, total_bytes);
     
     rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
     if (err != NULL) {
@@ -115,8 +119,9 @@ void update_dropped_traffic(const char *ip_addr, uint32_t bytes) {
         free(existing_value);
     }
     
-    snprintf(value, sizeof(value), "%lu", total_bytes);
-    
+    snprintf(value, sizeof(value), "%" PRIu64, total_bytes);
+    // Print total dropped traffic to RTE log
+    RTE_LOG(INFO, L2FWD, "Total dropped traffic for IP %s: %" PRIu64 " bytes\n", ip_addr, total_bytes);
     rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
     if (err != NULL) {
         fprintf(stderr, "Error writing dropped traffic to database for IP %s: %s\n", ip_addr, err);
@@ -174,7 +179,7 @@ TrafficData* read_allowed_traffic_data(int* count) {
         data[*count].ip_addr[ip_len] = '\0'; // Null-terminate the string
 
         data[*count].bytes = strtoull(value, NULL, 10);
-        data[*count].dropped_bytes = 0; // Not applicable for allowed traffic
+        //data[*count].dropped_bytes = 0; // Not applicable for allowed traffic
 
         (*count)++;
         rocksdb_iter_next(iter);
@@ -233,8 +238,8 @@ TrafficData* read_blacklisted_traffic_data(int* count) {
         strncpy(data[*count].ip_addr, ip_start, ip_len);
         data[*count].ip_addr[ip_len] = '\0'; // Null-terminate the string
 
-        data[*count].dropped_bytes = strtoull(value, NULL, 10);
-        data[*count].bytes = 0; // Not applicable for blacklisted traffic
+        data[*count].bytes = strtoull(value, NULL, 10);
+        //data[*count].bytes = 0; // Not applicable for blacklisted traffic
 
         (*count)++;
         rocksdb_iter_next(iter);
@@ -270,7 +275,7 @@ void update_icmp_packets(const char *ip_addr) {
         free(existing_value);
     }
     
-    snprintf(value, sizeof(value), "%lu", total_packets);
+    snprintf(value, sizeof(value), "%" PRIu64, total_packets);
     
     rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
     if (err != NULL) {

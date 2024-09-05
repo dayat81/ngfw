@@ -229,8 +229,8 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
             rte_pktmbuf_free(m);
             port_statistics[portid].dropped++;
             // Count dropped traffic
-            update_dropped_traffic(src_ip, pkt_len);
-            //update_dropped_traffic(dst_ip, pkt_len);
+            //update_dropped_traffic(src_ip, pkt_len);
+            update_dropped_traffic(dst_ip, pkt_len);
             return;
         }
         

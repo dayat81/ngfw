@@ -22,7 +22,7 @@ void update_icmp_packets(const char *ip_addr);
 typedef struct {
     char ip_addr[16];
     uint64_t bytes;
-    uint64_t dropped_bytes;
+    //uint64_t dropped_bytes;
 } TrafficData;
 
 // Structure to hold ICMP packet data for an IP address
