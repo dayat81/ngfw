@@ -230,13 +230,13 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
             port_statistics[portid].dropped++;
             // Count dropped traffic
             update_dropped_traffic(src_ip, pkt_len);
-            update_dropped_traffic(dst_ip, pkt_len);
+            //update_dropped_traffic(dst_ip, pkt_len);
             return;
         }
         
         
         update_ip_traffic(src_ip, pkt_len);
-        update_ip_traffic(dst_ip, pkt_len);
+        //update_ip_traffic(dst_ip, pkt_len);
     }
 
     // Call the DNS parsing function

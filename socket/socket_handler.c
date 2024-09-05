@@ -9,7 +9,6 @@
 #include <stdbool.h>
 #include "socket_handler.h"
 #include "../counter/counter_handler.h"
-#include <rte_log.h>
 #include <ctype.h>
 #include "../blacklist/blacklist_handler.h"
 
@@ -237,7 +236,7 @@ void *handle_socket_communication(void *arg) {
         }
 
         int valread = read(new_socket, buffer, BUFFER_SIZE);
-        RTE_LOG(INFO, L2FWD, "Received command: %s\n", buffer);
+        //RTE_LOG(INFO, L2FWD, "Received command: %s\n", buffer);
 
         // Process the command only if it's "get_traffic_data"
         // Remove newline character if present

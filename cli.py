@@ -1,6 +1,12 @@
 import telnetlib
 import sys
 import time
+from prometheus_client import start_http_server, Gauge
+import argparse
+
+label_names = ['ip']
+throughput_allowed = Gauge('throughput_allowed', 'Throughput every 15 sec',labelnames=label_names)
+throughput_blocked = Gauge('throughput_blocked', 'Throughput every 15 sec',labelnames=label_names)
 
 def send_command(command):
     try:
@@ -22,26 +28,43 @@ def send_command(command):
     except Exception as e:
         return f"Error: {str(e)}"
 
-def monitor_delta_traffic():
-    previous_traffic = {}
+def monitor_delta_traffic(interval=5):
+    start_http_server(8000)
+    previous_allowed = {}
+    previous_blocked = {}
     while True:
-        current_traffic = get_allowed_traffic()
-        delta_traffic = {}
+        current_allowed = get_allowed_traffic()
+        current_blocked = get_blocked_traffic()
+        delta_allowed = {}
+        delta_blocked = {}
         
-        for ip, count in current_traffic.items():
-            delta = count - previous_traffic.get(ip, 0)
+        for ip, count in current_allowed.items():
+            delta = count - previous_allowed.get(ip, 0)
             if delta > 0:
-                delta_traffic[ip] = delta
+                delta_allowed[ip] = delta / interval
         
-        if delta_traffic:
-            print(f"Delta traffic in the last 15 seconds (only positive changes):")
-            # Sort delta_traffic by value (delta) in descending order
-            sorted_delta = sorted(delta_traffic.items(), key=lambda x: x[1], reverse=True)
-            for ip, delta in sorted_delta:
-                print(f"{ip}: {delta}")
+        for ip, count in current_blocked.items():
+            delta = count - previous_blocked.get(ip, 0)
+            if delta > 0:
+                delta_blocked[ip] = delta / interval
         
-        previous_traffic = current_traffic
-        time.sleep(15)
+        if delta_allowed or delta_blocked:
+            print(f"\nDelta traffic in the last {interval} seconds (only positive changes):")
+            if delta_allowed:
+                print("Allowed traffic:")
+                sorted_allowed = sorted(delta_allowed.items(), key=lambda x: x[1], reverse=True)
+                for ip, delta in sorted_allowed:
+                    print(f"  {ip}: {delta}")
+                    throughput_allowed.labels(ip=ip).set(delta)
+            if delta_blocked:
+                print("Blocked traffic:")
+                sorted_blocked = sorted(delta_blocked.items(), key=lambda x: x[1], reverse=True)
+                for ip, delta in sorted_blocked:
+                    print(f"  {ip}: {delta}")
+                    throughput_blocked.labels(ip=ip).set(delta)
+        previous_allowed = current_allowed
+        previous_blocked = current_blocked
+        time.sleep(interval)
 
 def get_allowed_traffic():
     response = send_command("get_allowed_traffic")
@@ -59,7 +82,22 @@ def get_allowed_traffic():
 
     return traffic
 
-def monitor_delta_icmp():
+def get_blocked_traffic():
+    response = send_command("get_blocked_traffic")
+    traffic = {}
+    for line in response.split('\n'):
+        if ':' in line:
+            ip, count = line.split(':', 1)
+            ip = ip.strip()
+            if ip != 'Traffic':  # Skip the 'Traffic:' line
+                try:
+                    count = count.strip().split()[0]  # Get the first part (number) of the count
+                    traffic[ip] = int(count)
+                except (ValueError, IndexError):
+                    print(f"Warning: Could not parse line: {line}")
+    return traffic
+
+def monitor_delta_icmp(interval=5):
     previous_icmp = {}
     while True:
         current_icmp = get_icmp_data()
@@ -68,20 +106,20 @@ def monitor_delta_icmp():
         for ip, count in current_icmp.items():
             delta = count - previous_icmp.get(ip, 0)
             if delta > 0:
-                delta_icmp[ip] = delta
+                delta_icmp[ip] = delta / interval
                 if delta > 100:
                     print(f"Blacklisting {ip} due to high ICMP traffic (delta: {delta})")
                     send_command(f"blacklist {ip}")
         
         if delta_icmp:
-            print(f"Delta ICMP traffic in the last 10 seconds (only positive changes):")
+            print(f"Delta ICMP traffic in the last {interval} seconds (only positive changes):")
             # Sort delta_icmp by value (delta) in descending order
             sorted_delta = sorted(delta_icmp.items(), key=lambda x: x[1], reverse=True)
             for ip, delta in sorted_delta:
                 print(f"{ip}: {delta}")
         
         previous_icmp = current_icmp
-        time.sleep(10)
+        time.sleep(interval)
 
 def get_icmp_data():
     response = send_command("get_icmp_data")
@@ -99,29 +137,54 @@ def get_icmp_data():
     return icmp_data
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python cli.py <command>")
-        print("Available commands:")
-        print("- get_allowed_traffic")
-        print("- get_blocked_traffic")
-        print("- blacklist <ip>")
-        print("- unblacklist <ip>")
-        print("- check_blacklist <ip>")
-        print("- show_blacklist")
-        print("- clear_blacklist")  # New command
-        print("- get_icmp_data")
-        print("- monitor_delta_traffic")
-        print("- monitor_delta_icmp")  # New command
-        return
+    parser = argparse.ArgumentParser(description="Traffic monitoring CLI")
+    parser.add_argument("command", help="Command to execute", choices=[
+        "monitor_delta_traffic",
+        "monitor_delta_icmp",
+        "get_allowed_traffic",
+        "get_blocked_traffic",
+        "get_icmp_data",
+        "blacklist",
+        "unblacklist",
+        "check_blacklist",
+        "show_blacklist",
+        "clear_blacklist"
+    ])
+    parser.add_argument("--interval", type=int, default=5, help="Monitoring interval in seconds (default: 15)")
+    parser.add_argument("--ip", help="IP address for blacklisting")
+    args = parser.parse_args()
 
-    command = sys.argv[1]
-    if command == "monitor_delta_traffic":
-        monitor_delta_traffic()
-    elif command == "monitor_delta_icmp":
-        monitor_delta_icmp()
+    if args.command == "monitor_delta_traffic":
+        monitor_delta_traffic(args.interval)
+    elif args.command == "monitor_delta_icmp":
+        monitor_delta_icmp(args.interval)
+    elif args.command == "get_allowed_traffic":
+        print(get_allowed_traffic())
+    elif args.command == "get_blocked_traffic":
+        print(get_blocked_traffic())
+    elif args.command == "get_icmp_data":
+        print(get_icmp_data())
+    elif args.command == "blacklist":
+        if not args.ip:
+            parser.error("The blacklist command requires an --ip argument")
+        response = send_command(f"blacklist {args.ip}")
+        print(response)
+    elif args.command == "unblacklist":
+        if not args.ip:
+            parser.error("The unblacklist command requires an --ip argument")
+        response = send_command(f"unblacklist {args.ip}")
+        print(response)
+    elif args.command == "check_blacklist":
+        response = send_command("check_blacklist")
+        print(response)
+    elif args.command == "show_blacklist":
+        response = send_command("show_blacklist")
+        print(response)
+    elif args.command == "clear_blacklist":
+        response = send_command("clear_blacklist")
+        print(response)
     else:
-        command = " ".join(sys.argv[1:])
-        response = send_command(command)
+        response = send_command(args.command)
         print(response)
 
 if __name__ == "__main__":
