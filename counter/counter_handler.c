@@ -121,7 +121,7 @@ void update_dropped_traffic(const char *ip_addr, uint32_t bytes) {
     
     snprintf(value, sizeof(value), "%" PRIu64, total_bytes);
     // Print total dropped traffic to RTE log
-    RTE_LOG(INFO, L2FWD, "Total dropped traffic for IP %s: %" PRIu64 " bytes\n", ip_addr, total_bytes);
+    //RTE_LOG(INFO, L2FWD, "Total dropped traffic for IP %s: %" PRIu64 " bytes\n", ip_addr, total_bytes);
     rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
     if (err != NULL) {
         fprintf(stderr, "Error writing dropped traffic to database for IP %s: %s\n", ip_addr, err);

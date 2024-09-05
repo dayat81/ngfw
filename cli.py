@@ -40,13 +40,13 @@ def monitor_delta_traffic(interval=5):
         
         for ip, count in current_allowed.items():
             delta = count - previous_allowed.get(ip, 0)
-            if delta > 0:
-                delta_allowed[ip] = delta / interval
+            #if delta > 0:
+            delta_allowed[ip] = delta / interval
         
         for ip, count in current_blocked.items():
             delta = count - previous_blocked.get(ip, 0)
-            if delta > 0:
-                delta_blocked[ip] = delta / interval
+            #if delta > 0:
+            delta_blocked[ip] = delta / interval
         
         if delta_allowed or delta_blocked:
             print(f"\nDelta traffic in the last {interval} seconds (only positive changes):")
@@ -54,13 +54,13 @@ def monitor_delta_traffic(interval=5):
                 print("Allowed traffic:")
                 sorted_allowed = sorted(delta_allowed.items(), key=lambda x: x[1], reverse=True)
                 for ip, delta in sorted_allowed:
-                    print(f"  {ip}: {delta}")
+                    #print(f"  {ip}: {delta}")
                     throughput_allowed.labels(ip=ip).set(delta)
             if delta_blocked:
                 print("Blocked traffic:")
                 sorted_blocked = sorted(delta_blocked.items(), key=lambda x: x[1], reverse=True)
                 for ip, delta in sorted_blocked:
-                    print(f"  {ip}: {delta}")
+                    #print(f"  {ip}: {delta}")
                     throughput_blocked.labels(ip=ip).set(delta)
         previous_allowed = current_allowed
         previous_blocked = current_blocked
