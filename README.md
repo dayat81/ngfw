@@ -1,5 +1,6 @@
 # ngfw
 next generation firewall
+![Dashboard](./img/dashboard.png)
 # features:
 - [x] parse dns and record domain ip mapping
 - [x] count traffic in bytes

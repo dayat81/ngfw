@@ -3,6 +3,7 @@ import sys
 import time
 from prometheus_client import start_http_server, Gauge
 import argparse
+import numpy as np
 
 label_names = ['ip']
 throughput_allowed = Gauge('throughput_allowed', 'Throughput every 15 sec',labelnames=label_names)
@@ -76,7 +77,7 @@ def get_allowed_traffic():
             if ip != 'Traffic':  # Skip the 'Traffic:' line
                 try:
                     count = count.strip().split()[0]  # Get the first part (number) of the count
-                    traffic[ip] = int(count)
+                    traffic[ip] = np.int64(count)  # Use 64-bit integer
                 except (ValueError, IndexError):
                     print(f"Warning: Could not parse line: {line}")
 
@@ -92,7 +93,7 @@ def get_blocked_traffic():
             if ip != 'Traffic':  # Skip the 'Traffic:' line
                 try:
                     count = count.strip().split()[0]  # Get the first part (number) of the count
-                    traffic[ip] = int(count)
+                    traffic[ip] = np.int64(count)  # Use 64-bit integer
                 except (ValueError, IndexError):
                     print(f"Warning: Could not parse line: {line}")
     return traffic
