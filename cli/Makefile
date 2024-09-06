@@ -10,26 +10,33 @@ LIBS = -lrocksdb
 # Source files
 SRCS = counter_cli.c 
 
-# Object files
-OBJS = $(SRCS:.c=.o)
+# Object files (in build directory)
+OBJS = $(addprefix $(BUILD_DIR)/, $(SRCS:.c=.o))
+
+# Build directory
+BUILD_DIR = build
 
 # Executable name
 TARGET = counter_cli
 
 # Default target
-all: $(TARGET)
+all: $(BUILD_DIR) $(TARGET)
 
-# Linking
+# Create build directory
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+# Linking (update path)
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
-# Compiling
-%.o: %.c
+# Compiling (update path)
+$(BUILD_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Clean up
+# Clean up (update path)
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -rf $(BUILD_DIR) $(TARGET)
 
 # Phony targets
 .PHONY: all clean
