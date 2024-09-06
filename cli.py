@@ -40,28 +40,26 @@ def monitor_delta_traffic(interval=5):
         delta_blocked = {}
         
         for ip, count in current_allowed.items():
-            delta = count - previous_allowed.get(ip, 0)
-            #if delta > 0:
+            delta = max(0, count - previous_allowed.get(ip, 0))
             delta_allowed[ip] = delta / interval
         
         for ip, count in current_blocked.items():
-            delta = count - previous_blocked.get(ip, 0)
-            #if delta > 0:
+            delta = max(0, count - previous_blocked.get(ip, 0))
             delta_blocked[ip] = delta / interval
         
         if delta_allowed or delta_blocked:
-            print(f"\nDelta traffic in the last {interval} seconds :")
+            print(f"\nDelta traffic in the last {interval} seconds:")
             if delta_allowed:
                 print("Allowed traffic:")
                 sorted_allowed = sorted(delta_allowed.items(), key=lambda x: x[1], reverse=True)
                 for ip, delta in sorted_allowed:
-                    #print(f"  {ip}: {delta}")
+                    #if delta > 0:
                     throughput_allowed.labels(ip=ip).set(delta)
             if delta_blocked:
                 print("Blocked traffic:")
                 sorted_blocked = sorted(delta_blocked.items(), key=lambda x: x[1], reverse=True)
                 for ip, delta in sorted_blocked:
-                    #print(f"  {ip}: {delta}")
+                    #if delta > 0:
                     throughput_blocked.labels(ip=ip).set(delta)
         previous_allowed = current_allowed
         previous_blocked = current_blocked
@@ -99,25 +97,28 @@ def get_blocked_traffic():
     return traffic
 
 def monitor_delta_icmp(interval=5):
-    previous_icmp = {}
+    previous_icmp = None
     while True:
         current_icmp = get_icmp_data()
         delta_icmp = {}
         
-        for ip, count in current_icmp.items():
-            delta = count - previous_icmp.get(ip, 0)
-            if delta > 0:
-                delta_icmp[ip] = delta / interval
-                if delta > 100:
-                    print(f"Blacklisting {ip} due to high ICMP traffic (delta: {delta})")
-                    send_command(f"blacklist {ip}")
-        
-        if delta_icmp:
-            print(f"Delta ICMP traffic in the last {interval} seconds (only positive changes):")
-            # Sort delta_icmp by value (delta) in descending order
-            sorted_delta = sorted(delta_icmp.items(), key=lambda x: x[1], reverse=True)
-            for ip, delta in sorted_delta:
-                print(f"{ip}: {delta}")
+        if previous_icmp is not None:
+            for ip, count in current_icmp.items():
+                delta = count - previous_icmp.get(ip, 0)
+                if delta > 0:
+                    delta_icmp[ip] = delta / interval
+                    if delta > 100:
+                        print(f"Blacklisting {ip} due to high ICMP traffic (delta: {delta})")
+                        send_command(f"blacklist {ip}")
+            
+            if delta_icmp:
+                print(f"Delta ICMP traffic in the last {interval} seconds (only positive changes):")
+                # Sort delta_icmp by value (delta) in descending order
+                sorted_delta = sorted(delta_icmp.items(), key=lambda x: x[1], reverse=True)
+                for ip, delta in sorted_delta:
+                    print(f"{ip}: {delta}")
+        else:
+            print("First run: Collecting initial ICMP data...")
         
         previous_icmp = current_icmp
         time.sleep(interval)

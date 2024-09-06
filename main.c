@@ -734,7 +734,7 @@ main(int argc, char **argv)
 	}
 
 	// Initialize RocksDB
-	if (init_rocksdb("/tmp/rocksdb_dns_counter", reset_db) != 0) {
+	if (init_rocksdb("/tmp/rocksdb_counter", reset_db) != 0) {
 		return 1;
 	}
 
