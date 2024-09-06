@@ -8,13 +8,13 @@ CFLAGS = -Wall -Werror -O2
 LIBS = -lrocksdb
 
 # Source files
-SRCS = main.c 
+SRCS = counter_cli.c 
 
 # Object files
 OBJS = $(SRCS:.c=.o)
 
 # Executable name
-TARGET = cli
+TARGET = counter_cli
 
 # Default target
 all: $(TARGET)

@@ -5,8 +5,15 @@
 #include <rocksdb/c.h>
 
 
-int main() {
-    const char* db_path = "/tmp/rocksdb_counter_allowed";
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <counter_name>\n", argv[0]);
+        return 1;
+    }
+
+    char db_path[256];
+    snprintf(db_path, sizeof(db_path), "/tmp/rocksdb_counter_%s", argv[1]);
+    
     rocksdb_t* db;
     rocksdb_options_t* options;
     char* err = NULL;
