@@ -22,7 +22,6 @@ void update_icmp_packets(const char *ip_addr);
 typedef struct {
     char ip_addr[16];
     uint64_t bytes;
-    //uint64_t dropped_bytes;
 } TrafficData;
 
 // Structure to hold ICMP packet data for an IP address
@@ -39,5 +38,11 @@ TrafficData* read_blacklisted_traffic_data(int* count);
 
 // Read ICMP packet data from RocksDB
 ICMPData* read_icmp_packet_data(int* count);
+
+// Function to validate IP address format
+int is_valid_ip(const char *ip_addr);
+
+// Function to reset a database
+void reset_database(rocksdb_iterator_t* it, rocksdb_t* db);
 
 #endif // ROCKSDB_HANDLER_H

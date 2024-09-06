@@ -50,7 +50,7 @@ def monitor_delta_traffic(interval=5):
             delta_blocked[ip] = delta / interval
         
         if delta_allowed or delta_blocked:
-            print(f"\nDelta traffic in the last {interval} seconds (only positive changes):")
+            print(f"\nDelta traffic in the last {interval} seconds :")
             if delta_allowed:
                 print("Allowed traffic:")
                 sorted_allowed = sorted(delta_allowed.items(), key=lambda x: x[1], reverse=True)

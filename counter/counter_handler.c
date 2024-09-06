@@ -8,7 +8,7 @@
 
 #define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
-static rocksdb_t *db;
+static rocksdb_t *db_allowed, *db_blocked, *db_icmp;
 static rocksdb_options_t *options;
 static rocksdb_writeoptions_t *writeoptions;
 static rocksdb_readoptions_t *readoptions;
@@ -26,38 +26,73 @@ int init_rocksdb(const char *db_path, int reset_db) {
     readoptions = rocksdb_readoptions_create();
 
     char *err = NULL;
-    db = rocksdb_open(options, db_path, &err);
+    char db_path_allowed[256], db_path_blocked[256], db_path_icmp[256];
+    snprintf(db_path_allowed, sizeof(db_path_allowed), "%s_allowed", db_path);
+    snprintf(db_path_blocked, sizeof(db_path_blocked), "%s_blocked", db_path);
+    snprintf(db_path_icmp, sizeof(db_path_icmp), "%s_icmp", db_path);
+
+    db_allowed = rocksdb_open(options, db_path_allowed, &err);
     if (err != NULL) {
-        fprintf(stderr, "Error opening database: %s\n", err);
+        fprintf(stderr, "Error opening allowed traffic database: %s\n", err);
+        free(err);
+        return 1;
+    }
+
+    db_blocked = rocksdb_open(options, db_path_blocked, &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error opening blocked traffic database: %s\n", err);
+        free(err);
+        return 1;
+    }
+
+    db_icmp = rocksdb_open(options, db_path_icmp, &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error opening ICMP packet database: %s\n", err);
         free(err);
         return 1;
     }
 
     if (reset_db) {
-        // Reset all data in the database
-        rocksdb_iterator_t* it = rocksdb_create_iterator(db, readoptions);
-        rocksdb_iter_seek_to_first(it);
+        // Reset all data in the databases
+        rocksdb_iterator_t* it;
+        
+        it = rocksdb_create_iterator(db_allowed, readoptions);
+        reset_database(it, db_allowed);
+        rocksdb_iter_destroy(it);
 
-        while (rocksdb_iter_valid(it)) {
-            size_t key_len;
-            const char* key = rocksdb_iter_key(it, &key_len);
-            rocksdb_delete(db, writeoptions, key, key_len, &err);
-            if (err != NULL) {
-                fprintf(stderr, "Error deleting key: %s\n", err);
-                free(err);
-                err = NULL;
-            }
-            rocksdb_iter_next(it);
-        }
+        it = rocksdb_create_iterator(db_blocked, readoptions);
+        reset_database(it, db_blocked);
+        rocksdb_iter_destroy(it);
 
+        it = rocksdb_create_iterator(db_icmp, readoptions);
+        reset_database(it, db_icmp);
         rocksdb_iter_destroy(it);
     }
 
     return 0;
 }
 
+void reset_database(rocksdb_iterator_t* it, rocksdb_t* db) {
+    rocksdb_iter_seek_to_first(it);
+    char *err = NULL;
+
+    while (rocksdb_iter_valid(it)) {
+        size_t key_len;
+        const char* key = rocksdb_iter_key(it, &key_len);
+        rocksdb_delete(db, writeoptions, key, key_len, &err);
+        if (err != NULL) {
+            fprintf(stderr, "Error deleting key: %s\n", err);
+            free(err);
+            err = NULL;
+        }
+        rocksdb_iter_next(it);
+    }
+}
+
 void close_rocksdb(void) {
-    rocksdb_close(db);
+    rocksdb_close(db_allowed);
+    rocksdb_close(db_blocked);
+    rocksdb_close(db_icmp);
     rocksdb_options_destroy(options);
     rocksdb_writeoptions_destroy(writeoptions);
     rocksdb_readoptions_destroy(readoptions);
@@ -74,9 +109,9 @@ void update_ip_traffic(const char *ip_addr, uint32_t bytes) {
     char *err = NULL;
     size_t read_len;
     
-    snprintf(key, sizeof(key), "allowed_traffic_%s", ip_addr);
+    snprintf(key, sizeof(key), "%s", ip_addr);
     
-    char *existing_value = rocksdb_get(db, readoptions, key, strlen(key), &read_len, &err);
+    char *existing_value = rocksdb_get(db_allowed, readoptions, key, strlen(key), &read_len, &err);
     if (err != NULL) {
         fprintf(stderr, "Error reading from database: %s\n", err);
         free(err);
@@ -91,7 +126,7 @@ void update_ip_traffic(const char *ip_addr, uint32_t bytes) {
     
     snprintf(value, sizeof(value), "%" PRIu64, total_bytes);
     
-    rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
+    rocksdb_put(db_allowed, writeoptions, key, strlen(key), value, strlen(value), &err);
     if (err != NULL) {
         fprintf(stderr, "Error writing to database: %s\n", err);
         free(err);
@@ -104,9 +139,9 @@ void update_dropped_traffic(const char *ip_addr, uint32_t bytes) {
     char *err = NULL;
     size_t read_len;
     
-    snprintf(key, sizeof(key), "dropped_traffic_%s", ip_addr);
+    snprintf(key, sizeof(key), "%s", ip_addr);
     
-    char *existing_value = rocksdb_get(db, readoptions, key, strlen(key), &read_len, &err);
+    char *existing_value = rocksdb_get(db_blocked, readoptions, key, strlen(key), &read_len, &err);
     if (err != NULL) {
         fprintf(stderr, "Error reading dropped traffic from database for IP %s: %s\n", ip_addr, err);
         free(err);
@@ -122,7 +157,7 @@ void update_dropped_traffic(const char *ip_addr, uint32_t bytes) {
     snprintf(value, sizeof(value), "%" PRIu64, total_bytes);
     // Print total dropped traffic to RTE log
     //RTE_LOG(INFO, L2FWD, "Total dropped traffic for IP %s: %" PRIu64 " bytes\n", ip_addr, total_bytes);
-    rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
+    rocksdb_put(db_blocked, writeoptions, key, strlen(key), value, strlen(value), &err);
     if (err != NULL) {
         fprintf(stderr, "Error writing dropped traffic to database for IP %s: %s\n", ip_addr, err);
         free(err);
@@ -130,7 +165,7 @@ void update_dropped_traffic(const char *ip_addr, uint32_t bytes) {
 }
 
 TrafficData* read_allowed_traffic_data(int* count) {
-    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, readoptions);
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db_allowed, readoptions);
     rocksdb_iter_seek_to_first(iter);
 
     TrafficData* data = NULL;
@@ -149,12 +184,6 @@ TrafficData* read_allowed_traffic_data(int* count) {
         const char* key = rocksdb_iter_key(iter, &key_len);
         const char* value = rocksdb_iter_value(iter, &value_len);
 
-        // Only process keys that start with "allowed_traffic_"
-        if (strncmp(key, "allowed_traffic_", 16) != 0) {
-            rocksdb_iter_next(iter);
-            continue;
-        }
-
         if (*count >= capacity) {
             capacity *= 2;
             TrafficData* temp = realloc(data, capacity * sizeof(TrafficData));
@@ -168,8 +197,8 @@ TrafficData* read_allowed_traffic_data(int* count) {
         }
 
         // Extract IP address from the key
-        const char* ip_start = key + 16; // Skip "allowed_traffic_"
-        size_t ip_len = key_len - 16;
+        const char* ip_start = key;
+        size_t ip_len = key_len;
 
         // Ensure the IP address is null-terminated
         if (ip_len >= sizeof(data[*count].ip_addr)) {
@@ -190,7 +219,7 @@ TrafficData* read_allowed_traffic_data(int* count) {
 }
 
 TrafficData* read_blacklisted_traffic_data(int* count) {
-    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, readoptions);
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db_blocked, readoptions);
     rocksdb_iter_seek_to_first(iter);
 
     TrafficData* data = NULL;
@@ -209,12 +238,6 @@ TrafficData* read_blacklisted_traffic_data(int* count) {
         const char* key = rocksdb_iter_key(iter, &key_len);
         const char* value = rocksdb_iter_value(iter, &value_len);
 
-        // Only process keys that start with "dropped_traffic_"
-        if (strncmp(key, "dropped_traffic_", 16) != 0) {
-            rocksdb_iter_next(iter);
-            continue;
-        }
-
         if (*count >= capacity) {
             capacity *= 2;
             TrafficData* temp = realloc(data, capacity * sizeof(TrafficData));
@@ -228,8 +251,8 @@ TrafficData* read_blacklisted_traffic_data(int* count) {
         }
 
         // Extract IP address from the key
-        const char* ip_start = key + 16; // Skip "dropped_traffic_"
-        size_t ip_len = key_len - 16;
+        const char* ip_start = key;
+        size_t ip_len = key_len;
 
         // Ensure the IP address is null-terminated
         if (ip_len >= sizeof(data[*count].ip_addr)) {
@@ -260,9 +283,9 @@ void update_icmp_packets(const char *ip_addr) {
     char *err = NULL;
     size_t read_len;
     
-    snprintf(key, sizeof(key), "icmp_packets_%s", ip_addr);
+    snprintf(key, sizeof(key), "%s", ip_addr);
     
-    char *existing_value = rocksdb_get(db, readoptions, key, strlen(key), &read_len, &err);
+    char *existing_value = rocksdb_get(db_icmp, readoptions, key, strlen(key), &read_len, &err);
     if (err != NULL) {
         fprintf(stderr, "Error reading ICMP packet count from database: %s\n", err);
         free(err);
@@ -277,7 +300,7 @@ void update_icmp_packets(const char *ip_addr) {
     
     snprintf(value, sizeof(value), "%" PRIu64, total_packets);
     
-    rocksdb_put(db, writeoptions, key, strlen(key), value, strlen(value), &err);
+    rocksdb_put(db_icmp, writeoptions, key, strlen(key), value, strlen(value), &err);
     if (err != NULL) {
         fprintf(stderr, "Error writing ICMP packet count to database: %s\n", err);
         free(err);
@@ -285,7 +308,7 @@ void update_icmp_packets(const char *ip_addr) {
 }
 
 ICMPData* read_icmp_packet_data(int* count) {
-    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, readoptions);
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db_icmp, readoptions);
     rocksdb_iter_seek_to_first(iter);
 
     ICMPData* data = NULL;
@@ -304,12 +327,6 @@ ICMPData* read_icmp_packet_data(int* count) {
         const char* key = rocksdb_iter_key(iter, &key_len);
         const char* value = rocksdb_iter_value(iter, &value_len);
 
-        // Only process keys that start with "icmp_packets_"
-        if (strncmp(key, "icmp_packets_", 13) != 0) {
-            rocksdb_iter_next(iter);
-            continue;
-        }
-
         if (*count >= capacity) {
             capacity *= 2;
             ICMPData* temp = realloc(data, capacity * sizeof(ICMPData));
@@ -323,8 +340,8 @@ ICMPData* read_icmp_packet_data(int* count) {
         }
 
         // Extract IP address from the key
-        const char* ip_start = key + 13; // Skip "icmp_packets_"
-        size_t ip_len = key_len - 13;
+        const char* ip_start = key;
+        size_t ip_len = key_len;
 
         // Ensure the IP address is null-terminated
         if (ip_len >= sizeof(data[*count].ip_addr)) {
