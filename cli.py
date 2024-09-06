@@ -1,13 +1,8 @@
 import telnetlib
 import sys
 import time
-from prometheus_client import start_http_server, Gauge
 import argparse
 import numpy as np
-
-label_names = ['ip']
-throughput_allowed = Gauge('throughput_allowed', 'Throughput every 15 sec',labelnames=label_names)
-throughput_blocked = Gauge('throughput_blocked', 'Throughput every 15 sec',labelnames=label_names)
 
 def send_command(command):
     try:
@@ -28,73 +23,6 @@ def send_command(command):
         return "Error: Connection refused. Make sure the server is running."
     except Exception as e:
         return f"Error: {str(e)}"
-
-def monitor_delta_traffic(interval=5):
-    start_http_server(8000)
-    previous_allowed = {}
-    previous_blocked = {}
-    while True:
-        current_allowed = get_allowed_traffic()
-        current_blocked = get_blocked_traffic()
-        delta_allowed = {}
-        delta_blocked = {}
-        
-        for ip, count in current_allowed.items():
-            delta = max(0, count - previous_allowed.get(ip, 0))
-            delta_allowed[ip] = delta / interval
-        
-        for ip, count in current_blocked.items():
-            delta = max(0, count - previous_blocked.get(ip, 0))
-            delta_blocked[ip] = delta / interval
-        
-        if delta_allowed or delta_blocked:
-            print(f"\nDelta traffic in the last {interval} seconds:")
-            if delta_allowed:
-                print("Allowed traffic:")
-                sorted_allowed = sorted(delta_allowed.items(), key=lambda x: x[1], reverse=True)
-                for ip, delta in sorted_allowed:
-                    #if delta > 0:
-                    throughput_allowed.labels(ip=ip).set(delta)
-            if delta_blocked:
-                print("Blocked traffic:")
-                sorted_blocked = sorted(delta_blocked.items(), key=lambda x: x[1], reverse=True)
-                for ip, delta in sorted_blocked:
-                    #if delta > 0:
-                    throughput_blocked.labels(ip=ip).set(delta)
-        previous_allowed = current_allowed
-        previous_blocked = current_blocked
-        time.sleep(interval)
-
-def get_allowed_traffic():
-    response = send_command("get_allowed_traffic")
-    traffic = {}
-    for line in response.split('\n'):
-        if ':' in line:
-            ip, count = line.split(':', 1)
-            ip = ip.strip()
-            if ip != 'Traffic':  # Skip the 'Traffic:' line
-                try:
-                    count = count.strip().split()[0]  # Get the first part (number) of the count
-                    traffic[ip] = np.int64(count)  # Use 64-bit integer
-                except (ValueError, IndexError):
-                    print(f"Warning: Could not parse line: {line}")
-
-    return traffic
-
-def get_blocked_traffic():
-    response = send_command("get_blocked_traffic")
-    traffic = {}
-    for line in response.split('\n'):
-        if ':' in line:
-            ip, count = line.split(':', 1)
-            ip = ip.strip()
-            if ip != 'Traffic':  # Skip the 'Traffic:' line
-                try:
-                    count = count.strip().split()[0]  # Get the first part (number) of the count
-                    traffic[ip] = np.int64(count)  # Use 64-bit integer
-                except (ValueError, IndexError):
-                    print(f"Warning: Could not parse line: {line}")
-    return traffic
 
 def monitor_delta_icmp(interval=5):
     previous_icmp = None
@@ -141,10 +69,7 @@ def get_icmp_data():
 def main():
     parser = argparse.ArgumentParser(description="Traffic monitoring CLI")
     parser.add_argument("command", help="Command to execute", choices=[
-        "monitor_delta_traffic",
         "monitor_delta_icmp",
-        "get_allowed_traffic",
-        "get_blocked_traffic",
         "get_icmp_data",
         "blacklist",
         "unblacklist",
@@ -156,13 +81,8 @@ def main():
     parser.add_argument("--ip", help="IP address for blacklisting")
     args = parser.parse_args()
 
-    if args.command == "monitor_delta_traffic":
-        monitor_delta_traffic(args.interval)
-    elif args.command == "monitor_delta_icmp":
+    if args.command == "monitor_delta_icmp":
         monitor_delta_icmp(args.interval)
-    elif args.command == "get_allowed_traffic":
-        print(get_allowed_traffic())
-    elif args.command == "get_blocked_traffic":
         print(get_blocked_traffic())
     elif args.command == "get_icmp_data":
         print(get_icmp_data())

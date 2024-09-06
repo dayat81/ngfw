@@ -18,23 +18,11 @@ void update_dropped_traffic(const char *ip_addr, uint32_t bytes);
 // Update ICMP packets in RocksDB
 void update_icmp_packets(const char *ip_addr);
 
-// Structure to hold traffic data for an IP address
-typedef struct {
-    char ip_addr[16];
-    uint64_t bytes;
-} TrafficData;
-
 // Structure to hold ICMP packet data for an IP address
 typedef struct {
     char ip_addr[INET_ADDRSTRLEN];
     uint64_t packet_count;
 } ICMPData;
-
-// Read allowed traffic data from RocksDB
-TrafficData* read_allowed_traffic_data(int* count);
-
-// Read blacklisted traffic data from RocksDB
-TrafficData* read_blacklisted_traffic_data(int* count);
 
 // Read ICMP packet data from RocksDB
 ICMPData* read_icmp_packet_data(int* count);

@@ -20,73 +20,6 @@ extern volatile bool force_quit;
 
 #define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
-void handle_get_allowed_traffic_data(int socket) {
-    int allowed_count;
-    TrafficData* allowed_data = read_allowed_traffic_data(&allowed_count);
-    char response[BUFFER_SIZE] = {0};
-    
-    if (allowed_data == NULL) {
-        snprintf(response, BUFFER_SIZE, "Error reading allowed traffic data");
-        send(socket, response, strlen(response), 0);
-    } else {
-        int offset = 0;
-        while (offset < allowed_count) {
-            int remaining = allowed_count - offset;
-            int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
-            
-            int written = 0;
-            written += snprintf(response + written, BUFFER_SIZE - written, "Allowed Traffic:\n");
-            for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
-                written += snprintf(response + written, BUFFER_SIZE - written, 
-                                    "%s: %"PRIu64" bytes\n", allowed_data[offset + i].ip_addr, allowed_data[offset + i].bytes);
-            }
-            
-            int bytes_sent = send(socket, response, written, 0);
-            if (bytes_sent < 0) {
-                perror("send");
-                break;
-            }
-            
-            offset += to_send;
-        }
-        
-        free(allowed_data);
-    }
-}
-
-void handle_get_blocked_traffic_data(int socket) {
-    int blacklisted_count;
-    TrafficData* blacklisted_data = read_blacklisted_traffic_data(&blacklisted_count);
-    char response[BUFFER_SIZE] = {0};
-    
-    if (blacklisted_data == NULL) {
-        snprintf(response, BUFFER_SIZE, "Error reading blocked traffic data");
-        send(socket, response, strlen(response), 0);
-    } else {
-        int offset = 0;
-        while (offset < blacklisted_count) {
-            int remaining = blacklisted_count - offset;
-            int to_send = (remaining > BUFFER_SIZE / 50) ? BUFFER_SIZE / 50 : remaining;
-            
-            int written = 0;
-            written += snprintf(response + written, BUFFER_SIZE - written, "Blocked Traffic:\n");
-            for (int i = 0; i < to_send && written < BUFFER_SIZE; i++) {
-                written += snprintf(response + written, BUFFER_SIZE - written, 
-                                    "%s: %"PRIu64" bytes\n", blacklisted_data[offset + i].ip_addr, blacklisted_data[offset + i].bytes);
-            }
-            
-            int bytes_sent = send(socket, response, written, 0);
-            if (bytes_sent < 0) {
-                perror("send");
-                break;
-            }
-            
-            offset += to_send;
-        }
-        
-        free(blacklisted_data);
-    }
-}
 
 void handle_blacklist(int socket, const char *ip) {
     char response[BUFFER_SIZE] = {0};
@@ -250,11 +183,7 @@ void *handle_socket_communication(void *arg) {
         while (end > trimmed_buffer && isspace(*end)) end--;
         *(end + 1) = 0;
 
-        if (strcmp(trimmed_buffer, "get_allowed_traffic") == 0) {
-            handle_get_allowed_traffic_data(new_socket);
-        } else if (strcmp(trimmed_buffer, "get_blocked_traffic") == 0) {
-            handle_get_blocked_traffic_data(new_socket);
-        } else if (strncmp(trimmed_buffer, "blacklist ", 10) == 0) {
+        if (strncmp(trimmed_buffer, "blacklist ", 10) == 0) {
             handle_blacklist(new_socket, trimmed_buffer + 10);
         } else if (strncmp(trimmed_buffer, "unblacklist ", 12) == 0) {
             handle_unblacklist(new_socket, trimmed_buffer + 12);

@@ -8,8 +8,6 @@ extern volatile bool force_quit;
 void *handle_socket_communication(void *arg);
 
 // Updated function declarations for command handlers
-void handle_get_allowed_traffic_data(int socket);
-void handle_get_blocked_traffic_data(int socket);
 void handle_blacklist(int socket, const char *ip);
 void handle_unblacklist(int socket, const char *ip);
 void handle_check_blacklist(int socket, const char *ip);
