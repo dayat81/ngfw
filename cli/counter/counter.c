@@ -1,18 +1,12 @@
+#include "counter.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
-#include <rocksdb/c.h>
 
-
-int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <counter_name>\n", argv[0]);
-        return 1;
-    }
-
+int print_counter(const char* counter_name) {
     char db_path[256];
-    snprintf(db_path, sizeof(db_path), "/tmp/rocksdb_counter_%s", argv[1]);
+    snprintf(db_path, sizeof(db_path), "/tmp/rocksdb_counter_%s", counter_name);
     
     rocksdb_t* db;
     rocksdb_options_t* options;
@@ -37,7 +31,6 @@ int main(int argc, char *argv[]) {
         const char* value = rocksdb_iter_value(iter, &value_len);
 
         // Process the key-value pair
-        // You'll need to implement logic to parse and print the data
         printf("Key: %.*s, Value: %.*s\n", (int)key_len, key, (int)value_len, value);
         rocksdb_iter_next(iter);
     }
@@ -49,3 +42,4 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+

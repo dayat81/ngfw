@@ -8,10 +8,10 @@ CFLAGS = -Wall -Werror -O2
 LIBS = -lrocksdb
 
 # Source files
-SRCS = counter_cli.c 
+SRCS = cli.c counter/counter.c
 
 # Object files (in build directory)
-OBJS = $(addprefix $(BUILD_DIR)/, $(SRCS:.c=.o))
+OBJS = $(addprefix $(BUILD_DIR)/, $(notdir $(SRCS:.c=.o)))
 
 # Build directory
 BUILD_DIR = build
@@ -26,15 +26,18 @@ all: $(BUILD_DIR) $(TARGET)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-# Linking (update path)
+# Linking
 $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
-# Compiling (update path)
+# Compiling
 $(BUILD_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Clean up (update path)
+$(BUILD_DIR)/%.o: counter/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Clean up
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
 
