@@ -9,7 +9,7 @@ throughput_blocked = Gauge('throughput_blocked', 'Throughput',labelnames=label_n
 
 
 def run_counter_cli(traffic_type):
-    result = subprocess.run(['./counter_cli', traffic_type], capture_output=True, text=True)
+    result = subprocess.run(['./build/counter', traffic_type], capture_output=True, text=True)
     output = result.stdout.strip().split('\n')
     data = {}
     for line in output:

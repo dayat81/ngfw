@@ -51,7 +51,6 @@
 
 #include "inspection/packet_parser.h"
 #include "counter/counter_handler.h"
-#include "socket/socket_handler.h"
 #include "blacklist/blacklist_handler.h"
 
 volatile bool force_quit = false;
@@ -739,8 +738,8 @@ main(int argc, char **argv)
 	}
 
 	// Initialize blacklist
-	if (init_blacklist("/tmp/blacklist.db", reset_db) != 0) {
-		close_rocksdb();
+	if (init_blacklist_db() != 0) {
+		close_blacklist_db();
 		return 1;
 	}
 
@@ -984,10 +983,6 @@ main(int argc, char **argv)
 
 	ret = 0;
 
-	pthread_t socket_thread;
-	if (pthread_create(&socket_thread, NULL, handle_socket_communication, NULL) != 0) {
-		rte_exit(EXIT_FAILURE, "Failed to create socket thread\n");
-	}
 
 	/* launch per-lcore init on every lcore */
 	rte_eal_mp_remote_launch(l2fwd_launch_one_lcore, NULL, CALL_MAIN);
@@ -998,8 +993,6 @@ main(int argc, char **argv)
 		}
 	}
 
-	// Kill the socket thread
-	pthread_cancel(socket_thread);
 
 	RTE_ETH_FOREACH_DEV(portid) {
 		if ((l2fwd_enabled_port_mask & (1 << portid)) == 0)
@@ -1016,7 +1009,7 @@ main(int argc, char **argv)
 	close_dns_log_file();
 
 	// Clean up the blacklist
-	close_blacklist();
+	close_blacklist_db();
 
 	/* clean up the EAL */
 	rte_eal_cleanup();

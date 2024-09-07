@@ -1,8 +1,8 @@
-#include "counter.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <rocksdb/c.h>
 
 int print_counter(const char* counter_name) {
     char db_path[256];
@@ -41,5 +41,15 @@ int print_counter(const char* counter_name) {
     rocksdb_options_destroy(options);
 
     return 0;
+}
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <counter_name>\n", argv[0]);
+        return 1;
+    }
+
+    const char* counter_name = argv[1];
+    return print_counter(counter_name);
 }
 
