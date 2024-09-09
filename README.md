@@ -10,5 +10,8 @@ next generation firewall
 - [x] ICMP flood detection
 - [ ] port scan detection
 
+# issues:
+- [ ] is_ip_blacklisted is slow. need to optimize it.
+
 
 

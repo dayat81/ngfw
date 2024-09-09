@@ -223,15 +223,15 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         
 		uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
         // Check if either source or destination IP is blacklisted
-        if (is_ip_blacklisted(src_ip) || is_ip_blacklisted(dst_ip)) {
-            // Drop the packet if either IP is blacklisted
-            rte_pktmbuf_free(m);
-            port_statistics[portid].dropped++;
-            // Count dropped traffic
-            //update_dropped_traffic(src_ip, pkt_len);
-            update_dropped_traffic(dst_ip, pkt_len);
-            return;
-        }
+        // if (is_ip_blacklisted(src_ip) || is_ip_blacklisted(dst_ip)) {
+        //     // Drop the packet if either IP is blacklisted
+        //     rte_pktmbuf_free(m);
+        //     port_statistics[portid].dropped++;
+        //     // Count dropped traffic
+        //     //update_dropped_traffic(src_ip, pkt_len);
+        //     update_dropped_traffic(dst_ip, pkt_len);
+        //     return;
+        // }
         
         
         //update_ip_traffic(src_ip, pkt_len);
@@ -733,7 +733,7 @@ main(int argc, char **argv)
 	}
 
 	// Initialize RocksDB
-	if (init_rocksdb("/tmp/rocksdb_counter", reset_db) != 0) {
+	if (init_rocksdb("/tmp/ramdisk/rocksdb_counter", reset_db) != 0) {
 		return 1;
 	}
 

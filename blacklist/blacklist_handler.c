@@ -21,7 +21,7 @@ static rocksdb_readoptions_t *readoptions = NULL;
     rocksdb_options_set_create_if_missing(options, 0);  // Don't create if missing
     
     char *err = NULL;
-    db = rocksdb_open_for_read_only(options, "/tmp/blacklist.db", 0, &err);  // Open in read-only mode
+    db = rocksdb_open_for_read_only(options, "/tmp/ramdisk/blacklist.db", 0, &err);  // Open in read-only mode
     if (err != NULL) {
         RTE_LOG(ERR, DB, "Failed to open RocksDB in read-only mode: %s\n", err);
         free(err);
