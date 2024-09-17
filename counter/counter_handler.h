@@ -17,6 +17,7 @@ void update_dropped_traffic(const char *ip_addr, uint32_t bytes);
 
 // Update ICMP packets in RocksDB
 void update_icmp_packets(const char *ip_addr);
+void update_tcp_syn_packets(const char *ip_addr);
 
 // Structure to hold ICMP packet data for an IP address
 typedef struct {

@@ -10,6 +10,7 @@
 #include <rte_mbuf.h>
 #include "packet_parser.h"
 #include "../counter/counter_handler.h"
+#include <rte_tcp.h>  // Add this line to include the TCP header definition
 #define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
 
@@ -132,6 +133,19 @@ void parse_packet(struct rte_mbuf *m) {
             
             // Update ICMP packets counter
             update_icmp_packets(ip_str);
+        } else if (ip_hdr->next_proto_id == IPPROTO_TCP) {
+            // TCP packet detected
+            struct rte_tcp_hdr *tcp_hdr = (struct rte_tcp_hdr *)(ip_hdr + 1);
+            // Check for SYN packet
+            if (tcp_hdr->tcp_flags & RTE_TCP_SYN_FLAG) {
+                // SYN packet detected
+                // Convert IP address to string
+                char ip_str[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &(ip_hdr->src_addr), ip_str, INET_ADDRSTRLEN);
+                
+                // Update SYN packets counter
+                update_tcp_syn_packets(ip_str);
+            }
         }
     }
 }

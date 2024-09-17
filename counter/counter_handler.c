@@ -8,7 +8,7 @@
 
 #define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
-static rocksdb_t *db_allowed, *db_blocked, *db_icmp;
+static rocksdb_t *db_allowed, *db_blocked, *db_icmp, *db_tcp_syn;
 static rocksdb_options_t *options;
 static rocksdb_writeoptions_t *writeoptions;
 static rocksdb_readoptions_t *readoptions;
@@ -26,10 +26,11 @@ int init_rocksdb(const char *db_path, int reset_db) {
     readoptions = rocksdb_readoptions_create();
 
     char *err = NULL;
-    char db_path_allowed[256], db_path_blocked[256], db_path_icmp[256];
+    char db_path_allowed[256], db_path_blocked[256], db_path_icmp[256], db_path_tcp_syn[256];
     snprintf(db_path_allowed, sizeof(db_path_allowed), "%s_allowed", db_path);
     snprintf(db_path_blocked, sizeof(db_path_blocked), "%s_blocked", db_path);
     snprintf(db_path_icmp, sizeof(db_path_icmp), "%s_icmp", db_path);
+    snprintf(db_path_tcp_syn, sizeof(db_path_tcp_syn), "%s_tcp_syn", db_path);
 
     db_allowed = rocksdb_open(options, db_path_allowed, &err);
     if (err != NULL) {
@@ -52,6 +53,13 @@ int init_rocksdb(const char *db_path, int reset_db) {
         return 1;
     }
 
+    db_tcp_syn = rocksdb_open(options, db_path_tcp_syn, &err); // Add opening TCP SYN database
+    if (err != NULL) {
+        fprintf(stderr, "Error opening TCP SYN packet database: %s\n", err);
+        free(err);
+        return 1;
+    }
+
     if (reset_db) {
         // Reset all data in the databases
         rocksdb_iterator_t* it;
@@ -66,6 +74,10 @@ int init_rocksdb(const char *db_path, int reset_db) {
 
         it = rocksdb_create_iterator(db_icmp, readoptions);
         reset_database(it, db_icmp);
+        rocksdb_iter_destroy(it);
+
+        it = rocksdb_create_iterator(db_tcp_syn, readoptions); // Add iterator for TCP SYN database
+        reset_database(it, db_tcp_syn);
         rocksdb_iter_destroy(it);
     }
 
@@ -196,6 +208,41 @@ void update_icmp_packets(const char *ip_addr) {
     rocksdb_put(db_icmp, writeoptions, key, strlen(key), value, strlen(value), &err);
     if (err != NULL) {
         fprintf(stderr, "Error writing ICMP packet count to database: %s\n", err);
+        free(err);
+    }
+}
+
+void update_tcp_syn_packets(const char *ip_addr) {
+    if (!is_valid_ip(ip_addr)) {
+        fprintf(stderr, "Invalid IP address format: %s\n", ip_addr);
+        return;
+    }
+
+    char key[64];
+    char value[32];
+    char *err = NULL;
+    size_t read_len;
+    
+    snprintf(key, sizeof(key), "%s", ip_addr);
+    
+    char *existing_value = rocksdb_get(db_tcp_syn, readoptions, key, strlen(key), &read_len, &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error reading TCP SYN packet count from database: %s\n", err);
+        free(err);
+        return;
+    }
+    
+    uint64_t total_packets = 1;
+    if (existing_value != NULL) {
+        total_packets += strtoull(existing_value, NULL, 10);
+        free(existing_value);
+    }
+    
+    snprintf(value, sizeof(value), "%" PRIu64, total_packets);
+    
+    rocksdb_put(db_tcp_syn, writeoptions, key, strlen(key), value, strlen(value), &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error writing TCP SYN packet count to database: %s\n", err);
         free(err);
     }
 }
