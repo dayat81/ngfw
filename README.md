@@ -8,7 +8,8 @@ next generation firewall
 - [x] domain filtering
 - [x] visualisation
 - [x] ICMP flood detection
-- [ ] port scan detection
+- [x] port scan detection
+- [ ] fast mitigation logic
 
 # issues:
 - [ ] is_ip_blacklisted is slow. need to optimize it.
