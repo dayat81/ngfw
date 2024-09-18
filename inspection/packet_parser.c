@@ -147,5 +147,14 @@ void parse_packet(struct rte_mbuf *m) {
                 update_tcp_syn_packets(ip_str);
             }
         }
+
+        // New: Update flow packet counts based on protocol ID
+        char src_ip[INET_ADDRSTRLEN], dst_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(ip_hdr->src_addr), src_ip, INET_ADDRSTRLEN);
+        inet_ntop(AF_INET, &(ip_hdr->dst_addr), dst_ip, INET_ADDRSTRLEN);
+        const char *protocol = (ip_hdr->next_proto_id == IPPROTO_TCP) ? "TCP" :
+                               (ip_hdr->next_proto_id == IPPROTO_UDP) ? "UDP" :
+                               (ip_hdr->next_proto_id == IPPROTO_ICMP) ? "ICMP" : "UNKNOWN";
+        update_flow_packets(src_ip, dst_ip, protocol);
     }
 }

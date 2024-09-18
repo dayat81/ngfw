@@ -738,10 +738,10 @@ main(int argc, char **argv)
 	}
 
 	// Initialize blacklist
-	if (init_blacklist_db() != 0) {
-		close_blacklist_db();
-		return 1;
-	}
+	// if (init_blacklist_db() != 0) {
+	// 	close_blacklist_db();
+	// 	return 1;
+	// }
 
 	force_quit = false;
 	signal(SIGINT, signal_handler);
@@ -1009,7 +1009,7 @@ main(int argc, char **argv)
 	close_dns_log_file();
 
 	// Clean up the blacklist
-	close_blacklist_db();
+	//close_blacklist_db();
 
 	/* clean up the EAL */
 	rte_eal_cleanup();

@@ -8,7 +8,7 @@
 
 #define RTE_LOGTYPE_L2FWD RTE_LOGTYPE_USER1
 
-static rocksdb_t *db_allowed, *db_blocked, *db_icmp, *db_tcp_syn;
+static rocksdb_t *db_allowed, *db_blocked, *db_icmp, *db_tcp_syn, *db_flow; // New database for flow packets
 static rocksdb_options_t *options;
 static rocksdb_writeoptions_t *writeoptions;
 static rocksdb_readoptions_t *readoptions;
@@ -26,11 +26,12 @@ int init_rocksdb(const char *db_path, int reset_db) {
     readoptions = rocksdb_readoptions_create();
 
     char *err = NULL;
-    char db_path_allowed[256], db_path_blocked[256], db_path_icmp[256], db_path_tcp_syn[256];
+    char db_path_allowed[256], db_path_blocked[256], db_path_icmp[256], db_path_tcp_syn[256], db_path_flow[256]; // New path for flow packets
     snprintf(db_path_allowed, sizeof(db_path_allowed), "%s_allowed", db_path);
     snprintf(db_path_blocked, sizeof(db_path_blocked), "%s_blocked", db_path);
     snprintf(db_path_icmp, sizeof(db_path_icmp), "%s_icmp", db_path);
     snprintf(db_path_tcp_syn, sizeof(db_path_tcp_syn), "%s_tcp_syn", db_path);
+    snprintf(db_path_flow, sizeof(db_path_flow), "%s_flow", db_path); // Set path for flow packets
 
     db_allowed = rocksdb_open(options, db_path_allowed, &err);
     if (err != NULL) {
@@ -60,6 +61,13 @@ int init_rocksdb(const char *db_path, int reset_db) {
         return 1;
     }
 
+    db_flow = rocksdb_open(options, db_path_flow, &err); // Open flow packets database
+    if (err != NULL) {
+        fprintf(stderr, "Error opening flow packets database: %s\n", err);
+        free(err);
+        return 1;
+    }
+
     if (reset_db) {
         // Reset all data in the databases
         rocksdb_iterator_t* it;
@@ -78,6 +86,10 @@ int init_rocksdb(const char *db_path, int reset_db) {
 
         it = rocksdb_create_iterator(db_tcp_syn, readoptions); // Add iterator for TCP SYN database
         reset_database(it, db_tcp_syn);
+        rocksdb_iter_destroy(it);
+
+        it = rocksdb_create_iterator(db_flow, readoptions); // Add iterator for flow packets database
+        reset_database(it, db_flow);
         rocksdb_iter_destroy(it);
     }
 
@@ -105,6 +117,7 @@ void close_rocksdb(void) {
     rocksdb_close(db_allowed);
     rocksdb_close(db_blocked);
     rocksdb_close(db_icmp);
+    rocksdb_close(db_flow); // Close flow packets database
     rocksdb_options_destroy(options);
     rocksdb_writeoptions_destroy(writeoptions);
     rocksdb_readoptions_destroy(readoptions);
@@ -175,7 +188,6 @@ void update_dropped_traffic(const char *ip_addr, uint32_t bytes) {
         free(err);
     }
 }
-
 
 void update_icmp_packets(const char *ip_addr) {
     if (!is_valid_ip(ip_addr)) {
@@ -298,4 +310,35 @@ ICMPData* read_icmp_packet_data(int* count) {
 
     rocksdb_iter_destroy(iter);
     return data;
+}
+
+// New function to update flow packet counts
+void update_flow_packets(const char *src_ip, const char *dst_ip, const char *protocol) {
+    char key[128]; // Adjust size as needed
+    char value[32];
+    char *err = NULL;
+    size_t read_len;
+
+    snprintf(key, sizeof(key), "%s_%s_%s", src_ip, dst_ip, protocol); // Create a unique key
+
+    char *existing_value = rocksdb_get(db_flow, readoptions, key, strlen(key), &read_len, &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error reading flow packet count from database: %s\n", err);
+        free(err);
+        return;
+    }
+
+    uint64_t total_packets = 1; // Start with 1 for the new packet
+    if (existing_value != NULL) {
+        total_packets += strtoull(existing_value, NULL, 10);
+        free(existing_value);
+    }
+
+    snprintf(value, sizeof(value), "%" PRIu64, total_packets);
+
+    rocksdb_put(db_flow, writeoptions, key, strlen(key), value, strlen(value), &err);
+    if (err != NULL) {
+        fprintf(stderr, "Error writing flow packet count to database: %s\n", err);
+        free(err);
+    }
 }
