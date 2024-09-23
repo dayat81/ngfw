@@ -137,36 +137,46 @@ int init_acl_context() {
     return 0;
 }
 
-// New function to add IP to ACL blacklist
-int add_ip_to_acl_blacklist(const char *ip) {
+
+
+int add_ip_to_acl_blacklist(const struct ipv4_5tuple *tuple) {
     if (init_acl_context() != 0) {
         return -1;
     }
 
-    // Define a structure for the rule with a single field
-    RTE_ACL_RULE_DEF(acl_rule, 1);
+    RTE_ACL_RULE_DEF(acl_rule, 5);
     struct acl_rule rule;
     memset(&rule, 0, sizeof(rule));
-
-    // Convert IP string to network byte order
-    struct in_addr addr;
-    if (inet_pton(AF_INET, ip, &addr) != 1) {
-        RTE_LOG(ERR, DB, "Invalid IP address: %s\n", ip);
-        return -1;
-    }
 
     // Set up the rule data
     rule.data.userdata = 1;  // Mark as blacklisted
     rule.data.category_mask = 1;  // Use only the first category
     rule.data.priority = 1;  // All blacklist entries have the same priority
 
-    // Set up the IP field (assuming it's the destination IP)
-    rule.field[0].value.u32 = addr.s_addr;
-    rule.field[0].mask_range.u32 = 32;  // Exact match (/32 subnet)
+    // Set up the fields
+    // Field 0: Protocol
+    rule.field[0].value.u8 = tuple->proto;
+    rule.field[0].mask_range.u8 = 0xff;  // Exact match
+
+    // Field 1: Source IP
+    rule.field[1].value.u32 = tuple->ip_src;
+    rule.field[1].mask_range.u32 = 32;  // Exact match (/32 subnet)
+
+    // Field 2: Destination IP
+    rule.field[2].value.u32 = tuple->ip_dst;
+    rule.field[2].mask_range.u32 = 32;  // Exact match (/32 subnet)
+
+    // Field 3: Source port
+    rule.field[3].value.u16 = tuple->port_src;
+    rule.field[3].mask_range.u16 = 0xffff;  // Exact match
+
+    // Field 4: Destination port
+    rule.field[4].value.u16 = tuple->port_dst;
+    rule.field[4].mask_range.u16 = 0xffff;  // Exact match
 
     // Add the rule
     if (rte_acl_add_rules(acl_ctx, (struct rte_acl_rule *)&rule, 1) != 0) {
-        RTE_LOG(ERR, DB, "Failed to add ACL rule for IP: %s\n", ip);
+        RTE_LOG(ERR, DB, "Failed to add ACL rule for 5-tuple\n");
         return -1;
     }
 
@@ -174,15 +184,51 @@ int add_ip_to_acl_blacklist(const char *ip) {
     struct rte_acl_config acl_build_param;
     memset(&acl_build_param, 0, sizeof(acl_build_param));
     acl_build_param.num_categories = 1;
-    acl_build_param.num_fields = 1;
+    acl_build_param.num_fields = 5;
 
     // Set up the field definitions
-    struct rte_acl_field_def field_defs[1];
-    field_defs[0].type = RTE_ACL_FIELD_TYPE_MASK;
-    field_defs[0].size = sizeof(uint32_t);
-    field_defs[0].field_index = 0;
-    field_defs[0].input_index = 0;
-    field_defs[0].offset = 0;  // Offset for the IP field in the input data
+    struct rte_acl_field_def field_defs[5] = {
+        // Proto field
+        {
+            .type = RTE_ACL_FIELD_TYPE_BITMASK,
+            .size = sizeof(uint8_t),
+            .field_index = 0,
+            .input_index = 0,
+            .offset = offsetof(struct ipv4_5tuple, proto),
+        },
+        // Source IP field
+        {
+            .type = RTE_ACL_FIELD_TYPE_MASK,
+            .size = sizeof(uint32_t),
+            .field_index = 1,
+            .input_index = 1,
+            .offset = offsetof(struct ipv4_5tuple, ip_src),
+        },
+        // Destination IP field
+        {
+            .type = RTE_ACL_FIELD_TYPE_MASK,
+            .size = sizeof(uint32_t),
+            .field_index = 2,
+            .input_index = 2,
+            .offset = offsetof(struct ipv4_5tuple, ip_dst),
+        },
+        // Source port field
+        {
+            .type = RTE_ACL_FIELD_TYPE_RANGE,
+            .size = sizeof(uint16_t),
+            .field_index = 3,
+            .input_index = 3,
+            .offset = offsetof(struct ipv4_5tuple, port_src),
+        },
+        // Destination port field
+        {
+            .type = RTE_ACL_FIELD_TYPE_RANGE,
+            .size = sizeof(uint16_t),
+            .field_index = 4,
+            .input_index = 3,
+            .offset = offsetof(struct ipv4_5tuple, port_dst),
+        },
+    };
 
     memcpy(&acl_build_param.defs, field_defs, sizeof(field_defs));
 
@@ -192,29 +238,29 @@ int add_ip_to_acl_blacklist(const char *ip) {
         return -1;
     }
 
-    RTE_LOG(INFO, DB, "Added IP %s to ACL blacklist successfully\n", ip);
+    RTE_LOG(INFO, DB, "Added 5-tuple to ACL blacklist successfully\n");
     return 0;
 }
 
 // New function to check if IP is in ACL blacklist
-bool is_ip_in_acl_blacklist(const char *ip) {
+bool is_ip_in_acl_blacklist(const struct ipv4_5tuple *tuple) {
     if (acl_ctx == NULL) {
         RTE_LOG(ERR, DB, "ACL context not initialized\n");
         return false;
     }
 
-    struct in_addr addr;
-    if (inet_pton(AF_INET, ip, &addr) != 1) {
-        RTE_LOG(ERR, DB, "Invalid IP address: %s\n", ip);
+    if (tuple == NULL) {
+        RTE_LOG(ERR, DB, "Invalid input: tuple is NULL\n");
         return false;
     }
 
     uint32_t result = 0;
-    const uint8_t *data_to_check[1] = { (const uint8_t *)&addr.s_addr };
-    RTE_LOG(INFO, DB, "Data to check: %p\n", data_to_check);
+    const uint8_t *data_to_check[1] = { (const uint8_t *)tuple };
+    RTE_LOG(DEBUG, DB, "Checking 5-tuple: proto=%u, src_ip=%u, dst_ip=%u, src_port=%u, dst_port=%u\n",
+            tuple->proto, tuple->ip_src, tuple->ip_dst, tuple->port_src, tuple->port_dst);
 
     if (rte_acl_classify(acl_ctx, data_to_check, &result, 1, 1) != 0) {
-        RTE_LOG(ERR, DB, "ACL classification failed for IP: %s\n", ip);
+        RTE_LOG(ERR, DB, "ACL classification failed for 5-tuple\n");
         return false;
     }
 

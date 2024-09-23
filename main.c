@@ -224,14 +224,21 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
         
         // Check if either source or destination IP is blacklisted using ACL
-        if (is_ip_in_acl_blacklist(src_ip) || is_ip_in_acl_blacklist(dst_ip)) {
-            // Drop the packet if either IP is blacklisted
-            rte_pktmbuf_free(m);
-            port_statistics[portid].dropped++;
-            // Count dropped traffic
-            update_dropped_traffic(dst_ip, pkt_len);
-            return;
-        }
+        struct ipv4_5tuple tuple = {
+            .proto = IPPROTO_ICMP,
+            .ip_src = 0,
+            .ip_dst = ip_hdr->dst_addr,
+            .port_src = 0,
+            .port_dst = 0
+        };
+        // if (is_ip_in_acl_blacklist(&tuple)) {
+        //     // Drop the packet if either IP is blacklisted
+        //     rte_pktmbuf_free(m);
+        //     port_statistics[portid].dropped++;
+        //     // Count dropped traffic
+        //     update_dropped_traffic(dst_ip, pkt_len);
+        //     return;
+        // }
         
         update_ip_traffic(dst_ip, pkt_len);
     }
@@ -738,8 +745,16 @@ main(int argc, char **argv)
 	if (init_acl_context() != 0) {
 		return -1;
 	}
-	// // Add IP 8.8.8.8 to ACL for testing
-	if (add_ip_to_acl_blacklist("8.8.8.8") != 0) {
+	// Add IP 8.8.8.8 to ACL for testing
+	struct ipv4_5tuple test_tuple = {
+		.proto = IPPROTO_ICMP,  // or any other protocol you want to test
+		.ip_src = 0,           // 0.0.0.0 (any source IP)
+		.ip_dst = RTE_IPV4(8,8,8,8),  // 8.8.8.8
+		.port_src = 0,         // any source port
+		.port_dst = 0          // any destination port
+	};
+	if (add_ip_to_acl_blacklist(&test_tuple) != 0) {
+		RTE_LOG(ERR, L2FWD, "Failed to add IP to ACL blacklist\n");
 		return 1;
 	}
 
