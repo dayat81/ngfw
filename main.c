@@ -221,20 +221,18 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         inet_ntop(AF_INET, &(ip_hdr->src_addr), src_ip, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &(ip_hdr->dst_addr), dst_ip, INET_ADDRSTRLEN);
         
-		uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
-        // Check if either source or destination IP is blacklisted
-        // if (is_ip_blacklisted(src_ip) || is_ip_blacklisted(dst_ip)) {
-        //     // Drop the packet if either IP is blacklisted
-        //     rte_pktmbuf_free(m);
-        //     port_statistics[portid].dropped++;
-        //     // Count dropped traffic
-        //     //update_dropped_traffic(src_ip, pkt_len);
-        //     update_dropped_traffic(dst_ip, pkt_len);
-        //     return;
-        // }
+        uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
         
+        // Check if either source or destination IP is blacklisted using ACL
+        if (is_ip_in_acl_blacklist(src_ip) || is_ip_in_acl_blacklist(dst_ip)) {
+            // Drop the packet if either IP is blacklisted
+            rte_pktmbuf_free(m);
+            port_statistics[portid].dropped++;
+            // Count dropped traffic
+            update_dropped_traffic(dst_ip, pkt_len);
+            return;
+        }
         
-        //update_ip_traffic(src_ip, pkt_len);
         update_ip_traffic(dst_ip, pkt_len);
     }
 
@@ -733,9 +731,17 @@ main(int argc, char **argv)
 	}
 
 	// Initialize RocksDB
-	if (init_rocksdb("/tmp/ramdisk/rocksdb_counter", reset_db) != 0) {
+	if (init_rocksdb("/tmp/rocksdb_counter", reset_db) != 0) {
 		return 1;
 	}
+	// Initialize ACL
+	if (init_acl_context() != 0) {
+		return -1;
+	}
+	// // Add IP 8.8.8.8 to ACL for testing
+	// if (add_ip_to_acl_blacklist("8.8.8.8") != 0) {
+	// 	return 1;
+	// }
 
 	// Initialize blacklist
 	// if (init_blacklist_db() != 0) {
@@ -1017,6 +1023,9 @@ main(int argc, char **argv)
 
 	// Before exiting, close RocksDB
 	close_rocksdb();
+
+	//close_acl_context();
+
 
 	return ret;
 }

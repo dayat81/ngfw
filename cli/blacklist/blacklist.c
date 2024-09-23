@@ -99,7 +99,7 @@ int insert_ip(const char* ip) {
 }
 
 int clear_blacklist(void) {
-    const char* db_path = "/tmp/ramdisk/blacklist.db";
+    const char* db_path = "/tmp/blacklist.db";
     
     char* err = NULL;
     rocksdb_t* db = init_db(db_path, 0, &err);

@@ -6,7 +6,7 @@
 
 int print_counter(const char* counter_name) {
     char db_path[256];
-    snprintf(db_path, sizeof(db_path), "/tmp/ramdisk/rocksdb_counter_%s", counter_name);
+    snprintf(db_path, sizeof(db_path), "/tmp/rocksdb_counter_%s", counter_name);
     
     rocksdb_t* db;
     rocksdb_options_t* options;

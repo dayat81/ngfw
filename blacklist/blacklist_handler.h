@@ -13,5 +13,11 @@ int init_blacklist_db(void);
 bool is_ip_blacklisted(const char *ip);
 void close_blacklist_db(void);
 
+// Add these new function prototypes
+int add_ip_to_acl_blacklist(const char *ip);
+bool is_ip_in_acl_blacklist(const char *ip);
+
+int init_acl_context(void);
+void close_acl_context();
 
 #endif // BLACKLIST_HANDLER_H
