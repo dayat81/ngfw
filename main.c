@@ -53,6 +53,130 @@
 #include "counter/counter_handler.h"
 #include "blacklist/blacklist_handler.h"
 
+#include <rte_acl.h>
+
+// Define the ACL rule structure
+struct acl_rule {
+    struct rte_acl_rule_data data;
+    struct rte_acl_field fields[4];
+};
+
+// Global ACL context
+struct rte_acl_ctx *acl_ctx;
+
+// Function to initialize ACL context and add rules
+int init_acl(void) {
+    struct rte_acl_config acl_config;
+    struct acl_rule rule;
+    int ret;
+
+    // Create ACL context
+    struct rte_acl_param acl_param = {
+        .name = "ACL_example",
+        .socket_id = SOCKET_ID_ANY,
+        .rule_size = RTE_ACL_RULE_SZ(4), // 4 fields in our rule
+        .max_rule_num = 1, // We're adding only one rule for now
+    };
+    
+    acl_ctx = rte_acl_create(&acl_param);
+    if (acl_ctx == NULL) {
+        RTE_LOG(ERR, ACL, "Failed to create ACL context\n");
+        return -1;
+    }
+
+    // Define the rule
+    memset(&rule, 0, sizeof(rule));
+    rule.data.userdata = 1; // Action to take when rule matches
+    rule.data.category_mask = 1; // We're using only one category
+    rule.data.priority = 1; // Rule priority
+
+    // ICMP protocol
+    rule.fields[0].value.u8 = IPPROTO_ICMP;
+    rule.fields[0].mask_range.u8 = 0xff;
+
+    // Source IP (any)
+    rule.fields[1].value.u32 = 0;
+    rule.fields[1].mask_range.u32 = 0;
+
+    // Destination IP (8.8.8.8)
+    rule.fields[2].value.u32 = RTE_IPV4(8,8,8,8);
+    rule.fields[2].mask_range.u32 = 32; // /32 mask
+
+    // Add the rule to the ACL context
+    ret = rte_acl_add_rules(acl_ctx, (struct rte_acl_rule *)&rule, 1);
+    if (ret != 0) {
+        RTE_LOG(ERR, ACL, "Failed to add ACL rule\n");
+        return -1;
+    }
+
+    // Prepare ACL build config
+    memset(&acl_config, 0, sizeof(acl_config));
+    acl_config.num_categories = 1;
+    acl_config.num_fields = 4;
+    
+    static struct rte_acl_field_def field_defs[] = {
+        {
+            .type = RTE_ACL_FIELD_TYPE_BITMASK,
+            .size = sizeof(uint8_t),
+            .field_index = 0,
+            .input_index = 0,
+            .offset = offsetof(struct ipv4_5tuple, proto),
+        },
+        {
+            .type = RTE_ACL_FIELD_TYPE_MASK,
+            .size = sizeof(uint32_t),
+            .field_index = 1,
+            .input_index = 1,
+            .offset = offsetof(struct ipv4_5tuple, ip_src),
+        },
+        {
+            .type = RTE_ACL_FIELD_TYPE_MASK,
+            .size = sizeof(uint32_t),
+            .field_index = 2,
+            .input_index = 2,
+            .offset = offsetof(struct ipv4_5tuple, ip_dst),
+        },
+        {
+            .type = RTE_ACL_FIELD_TYPE_RANGE,
+            .size = sizeof(uint16_t),
+            .field_index = 3,
+            .input_index = 3,
+            .offset = offsetof(struct ipv4_5tuple, port_src),
+        },
+    };
+    memcpy(&acl_config.defs, field_defs, sizeof(field_defs));
+
+    // Build the runtime structures for added rules
+    ret = rte_acl_build(acl_ctx, &acl_config);
+    if (ret != 0) {
+        RTE_LOG(ERR, ACL, "Failed to build ACL context\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+// Function to perform ACL classification
+int is_packet_allowed(struct ipv4_5tuple *tuple) {
+    uint32_t result = 0;
+    const uint8_t *data[4];
+
+    // Prepare the data for ACL classification
+    data[0] = (uint8_t *)&tuple->proto;
+    data[1] = (uint8_t *)&tuple->ip_src;
+    data[2] = (uint8_t *)&tuple->ip_dst;
+    data[3] = (uint8_t *)&tuple->port_src;  // We're not using this in our current rule, but including for completeness
+
+    // Classify the packet
+    rte_acl_classify(acl_ctx, data, &result, 1, 1);
+
+    // Log the result
+    RTE_LOG(INFO, ACL, "ACL classification result: %u (0 = allowed, non-zero = blocked)\n", result);
+
+    // If result is non-zero, the packet matched our rule and should be dropped
+    return (result == 0);
+}
+
 volatile bool force_quit = false;
 
 /* MAC updating enabled by default */
@@ -223,22 +347,20 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         
         uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
         
-        // Check if either source or destination IP is blacklisted using ACL
         struct ipv4_5tuple tuple = {
-            .proto = IPPROTO_ICMP,
-            .ip_src = 0,
+            .proto = ip_hdr->next_proto_id,
+            .ip_src = ip_hdr->src_addr,
             .ip_dst = ip_hdr->dst_addr,
-            .port_src = 0,
+            .port_src = 0,  // We're not using ports in this example
             .port_dst = 0
         };
-        // if (is_ip_in_acl_blacklist(&tuple)) {
-        //     // Drop the packet if either IP is blacklisted
-        //     rte_pktmbuf_free(m);
-        //     port_statistics[portid].dropped++;
-        //     // Count dropped traffic
-        //     update_dropped_traffic(dst_ip, pkt_len);
-        //     return;
-        // }
+
+        if (!is_packet_allowed(&tuple)) {
+            // Drop the packet if it's not allowed by ACL
+            rte_pktmbuf_free(m);
+            port_statistics[portid].dropped++;
+            return;
+        }
         
         update_ip_traffic(dst_ip, pkt_len);
     }
@@ -742,21 +864,21 @@ main(int argc, char **argv)
 		return 1;
 	}
 	// Initialize ACL
-	if (init_acl_context() != 0) {
-		return -1;
+	if (init_acl() != 0) {
+		rte_exit(EXIT_FAILURE, "Cannot initialize ACL\n");
 	}
-	// Add IP 8.8.8.8 to ACL for testing
-	struct ipv4_5tuple test_tuple = {
-		.proto = IPPROTO_ICMP,  // or any other protocol you want to test
-		.ip_src = 0,           // 0.0.0.0 (any source IP)
-		.ip_dst = RTE_IPV4(8,8,8,8),  // 8.8.8.8
-		.port_src = 0,         // any source port
-		.port_dst = 0          // any destination port
-	};
-	if (add_ip_to_acl_blacklist(&test_tuple) != 0) {
-		RTE_LOG(ERR, L2FWD, "Failed to add IP to ACL blacklist\n");
-		return 1;
-	}
+	// // Add IP 8.8.8.8 to ACL for testing
+	// struct ipv4_5tuple test_tuple = {
+	// 	.proto = IPPROTO_ICMP,  // or any other protocol you want to test
+	// 	.ip_src = 0,           // 0.0.0.0 (any source IP)
+	// 	.ip_dst = RTE_IPV4(8,8,8,8),  // 8.8.8.8
+	// 	.port_src = 0,         // any source port
+	// 	.port_dst = 0          // any destination port
+	// };
+	// if (add_ip_to_acl_blacklist(&test_tuple) != 0) {
+	// 	RTE_LOG(ERR, L2FWD, "Failed to add IP to ACL blacklist\n");
+	// 	return 1;
+	// }
 
 	// Initialize blacklist
 	// if (init_blacklist_db() != 0) {
@@ -1039,7 +1161,7 @@ main(int argc, char **argv)
 	// Before exiting, close RocksDB
 	close_rocksdb();
 
-	close_acl_context();
+	//close_acl_context();
 
 
 	return ret;
