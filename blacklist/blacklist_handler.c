@@ -98,7 +98,7 @@ int init_acl_context() {
     memset(&acl_param, 0, sizeof(acl_param));
     acl_param.name = "ACL_Context";
     acl_param.socket_id = SOCKET_ID_ANY;
-    acl_param.rule_size = RTE_ACL_RULE_SZ(1);
+    acl_param.rule_size = RTE_ACL_RULE_SZ(1);  // Only one field (IP address)
     acl_param.max_rule_num = MAX_ACL_RULES;
 
     RTE_LOG(INFO, DB, "Creating ACL context\n");
@@ -117,13 +117,14 @@ int init_acl_context() {
     acl_config.num_fields = 1;
 
     RTE_LOG(DEBUG, DB, "Configuring IP field\n");
-    struct rte_acl_field_def field;
-    field.type = RTE_ACL_FIELD_TYPE_MASK;
-    field.size = sizeof(uint32_t);
-    field.field_index = 0;
-    field.input_index = 0;
-    acl_config.num_fields = 1;
-    //acl_config.defs = field; // Changed from &field to field
+    struct rte_acl_field_def field_defs[1];
+    field_defs[0].type = RTE_ACL_FIELD_TYPE_MASK;
+    field_defs[0].size = sizeof(uint32_t);
+    field_defs[0].field_index = 0;
+    field_defs[0].input_index = 0;
+    field_defs[0].offset = 0;  // Offset for the IP field in the input data
+
+    memcpy(acl_config.defs, field_defs, sizeof(field_defs));
 
     if (rte_acl_set_ctx_classify(acl_ctx, RTE_ACL_CLASSIFY_DEFAULT) != 0) {
         RTE_LOG(ERR, DB, "Failed to set ACL classify method\n");
@@ -142,10 +143,10 @@ int add_ip_to_acl_blacklist(const char *ip) {
         return -1;
     }
 
-    struct rte_acl_rule_data rule_data;
-    struct rte_acl_field fields[1];
-    memset(&rule_data, 0, sizeof(rule_data));
-    memset(fields, 0, sizeof(fields));
+    // Define a structure for the rule with a single field
+    RTE_ACL_RULE_DEF(acl_rule, 1);
+    struct acl_rule rule;
+    memset(&rule, 0, sizeof(rule));
 
     // Convert IP string to network byte order
     struct in_addr addr;
@@ -155,24 +156,39 @@ int add_ip_to_acl_blacklist(const char *ip) {
     }
 
     // Set up the rule data
-    rule_data.category_mask = 1;
-    rule_data.priority = 1;
-    rule_data.userdata = 1;  // Mark as blacklisted
+    rule.data.userdata = 1;  // Mark as blacklisted
+    rule.data.category_mask = 1;  // Use only the first category
+    rule.data.priority = 1;  // All blacklist entries have the same priority
 
-    // Set up the IP field
-    fields[0].value.u32 = addr.s_addr;
-    fields[0].mask_range.u32 = 0xFFFFFFFF;  // Exact match
+    // Set up the IP field (assuming it's the destination IP)
+    rule.field[0].value.u32 = addr.s_addr;
+    rule.field[0].mask_range.u32 = 32;  // Exact match (/32 subnet)
 
     // Add the rule
-    if (rte_acl_add_rules(acl_ctx, (struct rte_acl_rule *)fields, 1) != 0) {
+    if (rte_acl_add_rules(acl_ctx, (struct rte_acl_rule *)&rule, 1) != 0) {
         RTE_LOG(ERR, DB, "Failed to add ACL rule for IP: %s\n", ip);
         return -1;
     }
 
-    // Build the ACL trie
-    struct rte_acl_config acl_config;
-    if (rte_acl_build(acl_ctx, &acl_config) != 0) {
-        RTE_LOG(ERR, DB, "Failed to build ACL trie\n");
+    // Prepare AC build config
+    struct rte_acl_config acl_build_param;
+    memset(&acl_build_param, 0, sizeof(acl_build_param));
+    acl_build_param.num_categories = 1;
+    acl_build_param.num_fields = 1;
+
+    // Set up the field definitions
+    struct rte_acl_field_def field_defs[1];
+    field_defs[0].type = RTE_ACL_FIELD_TYPE_MASK;
+    field_defs[0].size = sizeof(uint32_t);
+    field_defs[0].field_index = 0;
+    field_defs[0].input_index = 0;
+    field_defs[0].offset = 0;  // Offset for the IP field in the input data
+
+    memcpy(&acl_build_param.defs, field_defs, sizeof(field_defs));
+
+    // Build the runtime structures for added rules
+    if (rte_acl_build(acl_ctx, &acl_build_param) != 0) {
+        RTE_LOG(ERR, DB, "Failed to build ACL context\n");
         return -1;
     }
 
@@ -193,15 +209,16 @@ bool is_ip_in_acl_blacklist(const char *ip) {
         return false;
     }
 
-    uint32_t results[1];
-    const uint8_t *data_to_check = (const uint8_t *)&addr.s_addr;
+    uint32_t result = 0;
+    const uint8_t *data_to_check[1] = { (const uint8_t *)&addr.s_addr };
+    RTE_LOG(INFO, DB, "Data to check: %p\n", data_to_check);
 
-    if (rte_acl_classify(acl_ctx, &data_to_check, results, 1, 1) != 0) {
+    if (rte_acl_classify(acl_ctx, data_to_check, &result, 1, 1) != 0) {
         RTE_LOG(ERR, DB, "ACL classification failed for IP: %s\n", ip);
         return false;
     }
 
-    return (results[0] != 0);
+    return (result != 0);
 }
 
 // New function to close ACL context

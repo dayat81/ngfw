@@ -739,9 +739,9 @@ main(int argc, char **argv)
 		return -1;
 	}
 	// // Add IP 8.8.8.8 to ACL for testing
-	// if (add_ip_to_acl_blacklist("8.8.8.8") != 0) {
-	// 	return 1;
-	// }
+	if (add_ip_to_acl_blacklist("8.8.8.8") != 0) {
+		return 1;
+	}
 
 	// Initialize blacklist
 	// if (init_blacklist_db() != 0) {
@@ -1024,7 +1024,7 @@ main(int argc, char **argv)
 	// Before exiting, close RocksDB
 	close_rocksdb();
 
-	//close_acl_context();
+	close_acl_context();
 
 
 	return ret;
