@@ -840,7 +840,7 @@ main(int argc, char **argv)
 	if (acl_ctx == NULL)
 		rte_exit(EXIT_FAILURE, "Failed to create ACL context\n");
 
-	int num_rules = load_acl_rules("test/acl/input/acl1v4_5_rule");
+	int num_rules = load_acl_rules("acl_rule");
 	printf("Loaded %d ACL rules\n", num_rules);
 
 	memset(&acl_config, 0, sizeof(acl_config));
