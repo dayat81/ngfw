@@ -54,128 +54,46 @@
 #include "blacklist/blacklist_handler.h"
 
 #include <rte_acl.h>
-
-// Define the ACL rule structure
-struct acl_rule {
-    struct rte_acl_rule_data data;
-    struct rte_acl_field fields[4];
+static struct rte_acl_field_def ipv4_defs[] = {
+    {
+        .type = RTE_ACL_FIELD_TYPE_BITMASK,
+        .size = sizeof(uint8_t),
+        .field_index = 0,
+        .input_index = 0,
+        .offset = offsetof(struct rte_ipv4_hdr, next_proto_id),
+    },
+    {
+        .type = RTE_ACL_FIELD_TYPE_MASK,
+        .size = sizeof(uint32_t),
+        .field_index = 1,
+        .input_index = 1,
+        .offset = offsetof(struct rte_ipv4_hdr, src_addr),
+    },
+    {
+        .type = RTE_ACL_FIELD_TYPE_MASK,
+        .size = sizeof(uint32_t),
+        .field_index = 2,
+        .input_index = 2,
+        .offset = offsetof(struct rte_ipv4_hdr, dst_addr),
+    },
+    {
+        .type = RTE_ACL_FIELD_TYPE_RANGE,
+        .size = sizeof(uint16_t),
+        .field_index = 3,
+        .input_index = 3,
+        .offset = sizeof(struct rte_ipv4_hdr) + offsetof(struct rte_tcp_hdr, src_port),
+    },
+    {
+        .type = RTE_ACL_FIELD_TYPE_RANGE,
+        .size = sizeof(uint16_t),
+        .field_index = 4,
+        .input_index = 3,
+        .offset = sizeof(struct rte_ipv4_hdr) + offsetof(struct rte_tcp_hdr, dst_port),
+    },
 };
-
-// Global ACL context
+// Add these global variables
+#define MAX_ACL_RULES 1024
 struct rte_acl_ctx *acl_ctx;
-
-// Function to initialize ACL context and add rules
-int init_acl(void) {
-    struct rte_acl_config acl_config;
-    struct acl_rule rule;
-    int ret;
-
-    // Create ACL context
-    struct rte_acl_param acl_param = {
-        .name = "ACL_example",
-        .socket_id = SOCKET_ID_ANY,
-        .rule_size = RTE_ACL_RULE_SZ(4), // 4 fields in our rule
-        .max_rule_num = 1, // We're adding only one rule for now
-    };
-    
-    acl_ctx = rte_acl_create(&acl_param);
-    if (acl_ctx == NULL) {
-        RTE_LOG(ERR, ACL, "Failed to create ACL context\n");
-        return -1;
-    }
-
-    // Define the rule
-    memset(&rule, 0, sizeof(rule));
-    rule.data.userdata = 1; // Action to take when rule matches
-    rule.data.category_mask = 1; // We're using only one category
-    rule.data.priority = 1; // Rule priority
-
-    // ICMP protocol
-    rule.fields[0].value.u8 = IPPROTO_ICMP;
-    rule.fields[0].mask_range.u8 = 0xff;
-
-    // Source IP (any)
-    rule.fields[1].value.u32 = 0;
-    rule.fields[1].mask_range.u32 = 0;
-
-    // Destination IP (8.8.8.8)
-    rule.fields[2].value.u32 = RTE_IPV4(8,8,8,8);
-    rule.fields[2].mask_range.u32 = 32; // /32 mask
-
-    // Add the rule to the ACL context
-    ret = rte_acl_add_rules(acl_ctx, (struct rte_acl_rule *)&rule, 1);
-    if (ret != 0) {
-        RTE_LOG(ERR, ACL, "Failed to add ACL rule\n");
-        return -1;
-    }
-
-    // Prepare ACL build config
-    memset(&acl_config, 0, sizeof(acl_config));
-    acl_config.num_categories = 1;
-    acl_config.num_fields = 4;
-    
-    static struct rte_acl_field_def field_defs[] = {
-        {
-            .type = RTE_ACL_FIELD_TYPE_BITMASK,
-            .size = sizeof(uint8_t),
-            .field_index = 0,
-            .input_index = 0,
-            .offset = offsetof(struct ipv4_5tuple, proto),
-        },
-        {
-            .type = RTE_ACL_FIELD_TYPE_MASK,
-            .size = sizeof(uint32_t),
-            .field_index = 1,
-            .input_index = 1,
-            .offset = offsetof(struct ipv4_5tuple, ip_src),
-        },
-        {
-            .type = RTE_ACL_FIELD_TYPE_MASK,
-            .size = sizeof(uint32_t),
-            .field_index = 2,
-            .input_index = 2,
-            .offset = offsetof(struct ipv4_5tuple, ip_dst),
-        },
-        {
-            .type = RTE_ACL_FIELD_TYPE_RANGE,
-            .size = sizeof(uint16_t),
-            .field_index = 3,
-            .input_index = 3,
-            .offset = offsetof(struct ipv4_5tuple, port_src),
-        },
-    };
-    memcpy(&acl_config.defs, field_defs, sizeof(field_defs));
-
-    // Build the runtime structures for added rules
-    ret = rte_acl_build(acl_ctx, &acl_config);
-    if (ret != 0) {
-        RTE_LOG(ERR, ACL, "Failed to build ACL context\n");
-        return -1;
-    }
-
-    return 0;
-}
-
-// Function to perform ACL classification
-int is_packet_allowed(struct ipv4_5tuple *tuple) {
-    uint32_t result = 0;
-    const uint8_t *data[4];
-
-    // Prepare the data for ACL classification
-    data[0] = (uint8_t *)&tuple->proto;
-    data[1] = (uint8_t *)&tuple->ip_src;
-    data[2] = (uint8_t *)&tuple->ip_dst;
-    data[3] = (uint8_t *)&tuple->port_src;  // We're not using this in our current rule, but including for completeness
-
-    // Classify the packet
-    rte_acl_classify(acl_ctx, data, &result, 1, 1);
-
-    // Log the result
-    RTE_LOG(INFO, ACL, "ACL classification result: %u (0 = allowed, non-zero = blocked)\n", result);
-
-    // If result is non-zero, the packet matched our rule and should be dropped
-    return (result == 0);
-}
 
 volatile bool force_quit = false;
 
@@ -347,22 +265,20 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         
         uint32_t pkt_len = rte_be_to_cpu_16(ip_hdr->total_length);
         
-        struct ipv4_5tuple tuple = {
-            .proto = ip_hdr->next_proto_id,
-            .ip_src = ip_hdr->src_addr,
-            .ip_dst = ip_hdr->dst_addr,
-            .port_src = 0,  // We're not using ports in this example
-            .port_dst = 0
-        };
-
-        if (!is_packet_allowed(&tuple)) {
-            // Drop the packet if it's not allowed by ACL
-            rte_pktmbuf_free(m);
-            port_statistics[portid].dropped++;
-            return;
-        }
-        
         update_ip_traffic(dst_ip, pkt_len);
+
+        // Perform ACL classification
+        uint32_t results[1] = {0};
+        const uint8_t *data[1] = {(uint8_t *)ip_hdr};
+        if (rte_acl_classify(acl_ctx, data, results, 1, 1) < 0) {
+            RTE_LOG(ERR, L2FWD, "ACL classification failed\n");
+        } else if (results[0] != 0) {
+            // Packet matched an ACL rule, you can take action here
+            RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", results[0]);
+            // For example, you could drop the packet:
+            // rte_pktmbuf_free(m);
+            // return;
+        }
     }
 
     // Call the DNS parsing function
@@ -469,6 +385,7 @@ l2fwd_main_loop(void)
 
 			for (j = 0; j < nb_rx; j++) {
 				m = pkts_burst[j];
+				
 				rte_prefetch0(rte_pktmbuf_mtod(m, void *));
 				l2fwd_simple_forward(m, portid);
 			}
@@ -824,7 +741,56 @@ signal_handler(int signum)
 		force_quit = true;
 	}
 }
+static int
+load_acl_rules(const char *filename)
+{
+    FILE *f;
+    char buf[1024];
+    struct rte_acl_rule rule;
+    int rule_cnt = 0;
 
+    f = fopen(filename, "r");
+    if (f == NULL)
+        rte_exit(EXIT_FAILURE, "Failed to open ACL rules file %s\n", filename);
+
+    while (fgets(buf, sizeof(buf), f) != NULL) {
+        if (buf[0] == '#' || buf[0] == '\n')
+            continue;
+
+        if (rule_cnt >= MAX_ACL_RULES)
+            break;
+
+        memset(&rule, 0, sizeof(rule));
+
+        // Parse the rule from the line
+        // Format: @src_ip/mask dst_ip/mask sport_low:sport_high dport_low:dport_high proto/mask
+        if (sscanf(buf, "@%hhu.%hhu.%hhu.%hhu/%hhu %hhu.%hhu.%hhu.%hhu/%hhu %hu : %hu %hu : %hu %hhu/%hhu",
+                   &rule.field[1].value.u8, &rule.field[1].value.u8 + 1,
+                   &rule.field[1].value.u8 + 2, &rule.field[1].value.u8 + 3,
+                   &rule.field[1].mask_range.u8,
+                   &rule.field[2].value.u8, &rule.field[2].value.u8 + 1,
+                   &rule.field[2].value.u8 + 2, &rule.field[2].value.u8 + 3,
+                   &rule.field[2].mask_range.u8,
+                   &rule.field[3].value.u16, &rule.field[3].mask_range.u16,
+                   &rule.field[4].value.u16, &rule.field[4].mask_range.u16,
+                   &rule.field[0].value.u8, &rule.field[0].mask_range.u8) != 16) {
+            RTE_LOG(ERR, ACL, "Failed to parse ACL rule: %s\n", buf);
+            continue;
+        }
+
+        rule.data.category_mask = 1;
+        rule.data.priority = MAX_ACL_RULES - rule_cnt;
+        rule.data.userdata = rule_cnt + 1;
+
+        if (rte_acl_add_rules(acl_ctx, &rule, 1) != 0)
+            RTE_LOG(ERR, ACL, "Failed to add ACL rule\n");
+        else
+            rule_cnt++;
+    }
+
+    fclose(f);
+    return rule_cnt;
+}
 int
 main(int argc, char **argv)
 {
@@ -864,21 +830,25 @@ main(int argc, char **argv)
 		return 1;
 	}
 	// Initialize ACL
-	if (init_acl() != 0) {
-		rte_exit(EXIT_FAILURE, "Cannot initialize ACL\n");
-	}
-	// // Add IP 8.8.8.8 to ACL for testing
-	// struct ipv4_5tuple test_tuple = {
-	// 	.proto = IPPROTO_ICMP,  // or any other protocol you want to test
-	// 	.ip_src = 0,           // 0.0.0.0 (any source IP)
-	// 	.ip_dst = RTE_IPV4(8,8,8,8),  // 8.8.8.8
-	// 	.port_src = 0,         // any source port
-	// 	.port_dst = 0          // any destination port
-	// };
-	// if (add_ip_to_acl_blacklist(&test_tuple) != 0) {
-	// 	RTE_LOG(ERR, L2FWD, "Failed to add IP to ACL blacklist\n");
-	// 	return 1;
-	// }
+	struct rte_acl_config acl_config;
+	acl_ctx = rte_acl_create(&(struct rte_acl_param){
+		.name = "ACL Context",
+		.socket_id = rte_socket_id(),
+		.rule_size = RTE_ACL_RULE_SZ(RTE_DIM(ipv4_defs)),
+		.max_rule_num = MAX_ACL_RULES,
+	});
+	if (acl_ctx == NULL)
+		rte_exit(EXIT_FAILURE, "Failed to create ACL context\n");
+
+	int num_rules = load_acl_rules("test/acl/input/acl1v4_5_rule");
+	printf("Loaded %d ACL rules\n", num_rules);
+
+	memset(&acl_config, 0, sizeof(acl_config));
+	acl_config.num_categories = 1;
+	acl_config.num_fields = RTE_DIM(ipv4_defs);
+	memcpy(&acl_config.defs, ipv4_defs, sizeof(ipv4_defs));
+	if (rte_acl_build(acl_ctx, &acl_config) != 0)
+		rte_exit(EXIT_FAILURE, "Failed to build ACL trie\n");
 
 	// Initialize blacklist
 	// if (init_blacklist_db() != 0) {
@@ -1161,8 +1131,8 @@ main(int argc, char **argv)
 	// Before exiting, close RocksDB
 	close_rocksdb();
 
-	//close_acl_context();
-
+	// Before exiting, free ACL context
+	rte_acl_free(acl_ctx);
 
 	return ret;
 }
