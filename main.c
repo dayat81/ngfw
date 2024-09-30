@@ -768,19 +768,29 @@ load_acl_rules(const char *filename)
 
         // Parse the rule from the line
         // Format: @src_ip/mask dst_ip/mask sport_low:sport_high dport_low:dport_high proto/mask
+        uint8_t src_ip[4], dst_ip[4];
+        uint8_t src_mask, dst_mask, proto, proto_mask;
+        uint16_t sport_low, sport_high, dport_low, dport_high;
+
         if (sscanf(buf, "@%hhu.%hhu.%hhu.%hhu/%hhu %hhu.%hhu.%hhu.%hhu/%hhu %hu : %hu %hu : %hu %hhu/%hhu",
-                   &rule.field[1].value.u8, &rule.field[1].value.u8 + 1,
-                   &rule.field[1].value.u8 + 2, &rule.field[1].value.u8 + 3,
-                   &rule.field[1].mask_range.u8,
-                   &rule.field[2].value.u8, &rule.field[2].value.u8 + 1,
-                   &rule.field[2].value.u8 + 2, &rule.field[2].value.u8 + 3,
-                   &rule.field[2].mask_range.u8,
-                   &rule.field[3].value.u16, &rule.field[3].mask_range.u16,
-                   &rule.field[4].value.u16, &rule.field[4].mask_range.u16,
-                   &rule.field[0].value.u8, &rule.field[0].mask_range.u8) != 16) {
+                   &src_ip[0], &src_ip[1], &src_ip[2], &src_ip[3], &src_mask,
+                   &dst_ip[0], &dst_ip[1], &dst_ip[2], &dst_ip[3], &dst_mask,
+                   &sport_low, &sport_high, &dport_low, &dport_high,
+                   &proto, &proto_mask) != 16) {
             RTE_LOG(ERR, ACL, "Failed to parse ACL rule: %s\n", buf);
             continue;
         }
+
+        rule.field[0].value.u8 = proto;
+        rule.field[0].mask_range.u8 = proto_mask;
+        rule.field[1].value.u32 = RTE_IPV4(src_ip[0], src_ip[1], src_ip[2], src_ip[3]);
+        rule.field[1].mask_range.u32 = src_mask;
+        rule.field[2].value.u32 = RTE_IPV4(dst_ip[0], dst_ip[1], dst_ip[2], dst_ip[3]);
+        rule.field[2].mask_range.u32 = dst_mask;
+        rule.field[3].value.u16 = sport_low;
+        rule.field[3].mask_range.u16 = sport_high;
+        rule.field[4].value.u16 = dport_low;
+        rule.field[4].mask_range.u16 = dport_high;
 
         rule.data.category_mask = 1;
         rule.data.priority = MAX_ACL_RULES - rule_cnt;
