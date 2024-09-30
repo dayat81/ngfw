@@ -94,6 +94,7 @@ static struct rte_acl_field_def ipv4_defs[] = {
 // Add these global variables
 #define MAX_ACL_RULES 1024
 struct rte_acl_ctx *acl_ctx;
+struct rte_acl_ctx *acx;
 
 volatile bool force_quit = false;
 
@@ -268,17 +269,20 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         update_ip_traffic(dst_ip, pkt_len);
 
         // Perform ACL classification
-        uint32_t results[1] = {0};
+        uint32_t results[1] ;//= {0};
         const uint8_t *data[1] = {(uint8_t *)ip_hdr};
         if (rte_acl_classify(acl_ctx, data, results, 1, 1) < 0) {
             RTE_LOG(ERR, L2FWD, "ACL classification failed\n");
-        } else if (results[0] != 0) {
+        } else  {
             // Packet matched an ACL rule, you can take action here
-            RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", results[0]);
+            RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", *results);
             // For example, you could drop the packet:
             // rte_pktmbuf_free(m);
             // return;
         }
+		//uint32_t res[4]; /* make classify for 4 categories. */
+		//rte_acl_classify(acx, data, res, 1, 4);
+		//RTE_LOG(INFO, L2FWD, "test ACL rule %u\n", *res);
     }
 
     // Call the DNS parsing function
@@ -851,6 +855,104 @@ main(int argc, char **argv)
 		rte_exit(EXIT_FAILURE, "Failed to build ACL trie\n");
 
 	// Initialize blacklist
+	struct rte_acl_ctx * acx;
+struct rte_acl_config cfg;
+int rett;
+
+/* define a structure for the rule with up to 5 fields. */
+
+RTE_ACL_RULE_DEF(acl_ipv4_rule, RTE_DIM(ipv4_defs));
+
+/* AC context creation parameters. */
+
+struct rte_acl_param prm = {
+    .name = "ACL_example",
+    .socket_id = SOCKET_ID_ANY,
+    .rule_size = RTE_ACL_RULE_SZ(RTE_DIM(ipv4_defs)),
+
+    /* number of fields per rule. */
+
+    .max_rule_num = 8, /* maximum number of rules in the AC context. */
+};
+
+struct acl_ipv4_rule acl_rules[] = {
+
+    /* matches all packets traveling to 192.168.0.0/16, applies for categories: 0,1 */
+    {
+        .data = {.userdata = 1, .category_mask = 3, .priority = 1},
+
+        /* destination IPv4 */
+        .field[2] = {.value.u32 = RTE_IPV4(192,168,0,0),. mask_range.u32 = 16,},
+
+        /* source port */
+        .field[3] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
+
+        /* destination port */
+       .field[4] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
+    },
+
+    /* matches all packets traveling to 192.168.1.0/24, applies for categories: 0 */
+    {
+        .data = {.userdata = 2, .category_mask = 1, .priority = 2},
+
+        /* destination IPv4 */
+        .field[2] = {.value.u32 = RTE_IPV4(192,168,1,0),. mask_range.u32 = 24,},
+
+        /* source port */
+        .field[3] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
+
+        /* destination port */
+        .field[4] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
+    },
+
+    /* matches all packets traveling from 10.1.1.1, applies for categories: 1 */
+    {
+        .data = {.userdata = 3, .category_mask = 2, .priority = 3},
+
+        /* source IPv4 */
+        .field[1] = {.value.u32 = RTE_IPV4(10,1,1,1),. mask_range.u32 = 32,},
+
+        /* source port */
+        .field[3] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
+
+        /* destination port */
+        .field[4] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
+    },
+
+};
+
+
+/* create an empty AC context  */
+
+if ((acx = rte_acl_create(&prm)) == NULL) {
+
+    /* handle context create failure. */
+	rte_exit(EXIT_FAILURE, "Failed to create test ACL context\n");
+
+}
+
+/* add rules to the context */
+
+rett = rte_acl_add_rules(acx,(struct rte_acl_rule *) &acl_rules, RTE_DIM(acl_rules));
+if (rett != 0) {
+   /* handle error at adding ACL rules. */
+	rte_exit(EXIT_FAILURE, "Failed to add test ACL rules\n");
+}
+
+/* prepare AC build config. */
+
+cfg.num_categories = 2;
+cfg.num_fields = RTE_DIM(ipv4_defs);
+
+memcpy(cfg.defs, ipv4_defs, sizeof (ipv4_defs));
+
+/* build the runtime structures for added rules, with 2 categories. */
+
+rett = rte_acl_build(acx, &cfg);
+if (rett != 0) {
+   /* handle error at build runtime structures for ACL context. */
+	rte_exit(EXIT_FAILURE, "Failed to build test ACL trie\n");
+}
 	// if (init_blacklist_db() != 0) {
 	// 	close_blacklist_db();
 	// 	return 1;
