@@ -54,6 +54,8 @@
 #include "blacklist/blacklist_handler.h"
 
 #include <rte_acl.h>
+#include "mongoose.h"
+
 static struct rte_acl_field_def ipv4_defs[] = {
     {
         .type = RTE_ACL_FIELD_TYPE_BITMASK,
@@ -745,6 +747,43 @@ signal_handler(int signum)
 		force_quit = true;
 	}
 }
+
+// Define the structure to pass to the thread
+struct thread_data {
+    struct mg_mgr *mgr;
+    const char *listen_addr;
+};
+
+// Function to handle HTTP requests
+static void fn(struct mg_connection *c, int ev, void *ev_data, void *fn_data) {
+    if (ev == MG_EV_HTTP_MSG) {
+        struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+        if (mg_match(hm->uri, mg_str("/api/stats"), NULL)) {
+            mg_http_reply(c, 200, "Content-Type: application/json\r\n", 
+                          "{\"temperature\":22,\"humidity\":60}\n");
+        } else {
+            mg_http_reply(c, 404, "", "Not Found\n");
+        }
+    }
+}
+
+// Thread function to run Mongoose event loop
+void *run_mongoose(void *arg) {
+    struct thread_data *data = (struct thread_data *)arg;
+    struct mg_mgr *mgr = data->mgr;
+    const char *listen_addr = data->listen_addr;
+
+    mg_http_listen(mgr, listen_addr, fn, NULL);
+
+    while (!force_quit) {
+        mg_mgr_poll(mgr, 1000);  // Poll every 1000ms
+    }
+
+    mg_mgr_free(mgr);
+    free(data);
+    return NULL;
+}
+
 static int
 load_acl_rules(const char *filename)
 {
@@ -941,6 +980,20 @@ if ((acx = rte_acl_create(&prm)) == NULL) {
 
 }
 
+	// Initialize Mongoose
+	struct mg_mgr mgr;
+	mg_mgr_init(&mgr);
+
+	// Prepare thread data
+	struct thread_data *data = malloc(sizeof(struct thread_data));
+	data->mgr = &mgr;
+	data->listen_addr = "http://0.0.0.0:8000";
+
+	// Create and start the Mongoose thread
+	pthread_t mongoose_thread;
+	if (pthread_create(&mongoose_thread, NULL, run_mongoose, data) != 0) {
+		rte_exit(EXIT_FAILURE, "Failed to create Mongoose thread\n");
+	}
 /* add rules to the context */
 
 rett = rte_acl_add_rules(acx,(struct rte_acl_rule *) &acl_rules, RTE_DIM(acl_rules));
@@ -1245,6 +1298,10 @@ if (rett != 0) {
 
 	// Before exiting, free ACL context
 	rte_acl_free(acl_ctx);
+
+
+	// Wait for the Mongoose thread to finish
+	pthread_join(mongoose_thread, NULL);
 
 	return ret;
 }
