@@ -55,48 +55,7 @@
 
 #include <rte_acl.h>
 #include "mongoose.h"
-
-static struct rte_acl_field_def ipv4_defs[] = {
-    {
-        .type = RTE_ACL_FIELD_TYPE_BITMASK,
-        .size = sizeof(uint8_t),
-        .field_index = 0,
-        .input_index = 0,
-        .offset = offsetof(struct rte_ipv4_hdr, next_proto_id),
-    },
-    {
-        .type = RTE_ACL_FIELD_TYPE_MASK,
-        .size = sizeof(uint32_t),
-        .field_index = 1,
-        .input_index = 1,
-        .offset = offsetof(struct rte_ipv4_hdr, src_addr),
-    },
-    {
-        .type = RTE_ACL_FIELD_TYPE_MASK,
-        .size = sizeof(uint32_t),
-        .field_index = 2,
-        .input_index = 2,
-        .offset = offsetof(struct rte_ipv4_hdr, dst_addr),
-    },
-    {
-        .type = RTE_ACL_FIELD_TYPE_RANGE,
-        .size = sizeof(uint16_t),
-        .field_index = 3,
-        .input_index = 3,
-        .offset = sizeof(struct rte_ipv4_hdr) + offsetof(struct rte_tcp_hdr, src_port),
-    },
-    {
-        .type = RTE_ACL_FIELD_TYPE_RANGE,
-        .size = sizeof(uint16_t),
-        .field_index = 4,
-        .input_index = 3,
-        .offset = sizeof(struct rte_ipv4_hdr) + offsetof(struct rte_tcp_hdr, dst_port),
-    },
-};
-// Add these global variables
-#define MAX_ACL_RULES 1024
-struct rte_acl_ctx *acl_ctx;
-struct rte_acl_ctx *acx;
+#include "acl/acl_handler.h"
 
 volatile bool force_quit = false;
 
@@ -271,20 +230,17 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         update_ip_traffic(dst_ip, pkt_len);
 
         // Perform ACL classification
-        uint32_t results[1] ;//= {0};
+        uint32_t results[1] = {0};
         const uint8_t *data[1] = {(uint8_t *)ip_hdr};
         if (rte_acl_classify(acl_ctx, data, results, 1, 1) < 0) {
             RTE_LOG(ERR, L2FWD, "ACL classification failed\n");
-        } else  {
+        } else {
             // Packet matched an ACL rule, you can take action here
-            RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", *results);
+            RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", results[0]);
             // For example, you could drop the packet:
             // rte_pktmbuf_free(m);
             // return;
         }
-		//uint32_t res[4]; /* make classify for 4 categories. */
-		//rte_acl_classify(acx, data, res, 1, 4);
-		//RTE_LOG(INFO, L2FWD, "test ACL rule %u\n", *res);
     }
 
     // Call the DNS parsing function
@@ -784,66 +740,6 @@ void *run_mongoose(void *arg) {
     return NULL;
 }
 
-static int
-load_acl_rules(const char *filename)
-{
-    FILE *f;
-    char buf[1024];
-    struct rte_acl_rule rule;
-    int rule_cnt = 0;
-
-    f = fopen(filename, "r");
-    if (f == NULL)
-        rte_exit(EXIT_FAILURE, "Failed to open ACL rules file %s\n", filename);
-
-    while (fgets(buf, sizeof(buf), f) != NULL) {
-        if (buf[0] == '#' || buf[0] == '\n')
-            continue;
-
-        if (rule_cnt >= MAX_ACL_RULES)
-            break;
-
-        memset(&rule, 0, sizeof(rule));
-
-        // Parse the rule from the line
-        // Format: @src_ip/mask dst_ip/mask sport_low:sport_high dport_low:dport_high proto/mask
-        uint8_t src_ip[4], dst_ip[4];
-        uint8_t src_mask, dst_mask, proto, proto_mask;
-        uint16_t sport_low, sport_high, dport_low, dport_high;
-
-        if (sscanf(buf, "@%hhu.%hhu.%hhu.%hhu/%hhu %hhu.%hhu.%hhu.%hhu/%hhu %hu : %hu %hu : %hu %hhu/%hhu",
-                   &src_ip[0], &src_ip[1], &src_ip[2], &src_ip[3], &src_mask,
-                   &dst_ip[0], &dst_ip[1], &dst_ip[2], &dst_ip[3], &dst_mask,
-                   &sport_low, &sport_high, &dport_low, &dport_high,
-                   &proto, &proto_mask) != 16) {
-            RTE_LOG(ERR, ACL, "Failed to parse ACL rule: %s\n", buf);
-            continue;
-        }
-
-        rule.field[0].value.u8 = proto;
-        rule.field[0].mask_range.u8 = proto_mask;
-        rule.field[1].value.u32 = RTE_IPV4(src_ip[0], src_ip[1], src_ip[2], src_ip[3]);
-        rule.field[1].mask_range.u32 = src_mask;
-        rule.field[2].value.u32 = RTE_IPV4(dst_ip[0], dst_ip[1], dst_ip[2], dst_ip[3]);
-        rule.field[2].mask_range.u32 = dst_mask;
-        rule.field[3].value.u16 = sport_low;
-        rule.field[3].mask_range.u16 = sport_high;
-        rule.field[4].value.u16 = dport_low;
-        rule.field[4].mask_range.u16 = dport_high;
-
-        rule.data.category_mask = 1;
-        rule.data.priority = MAX_ACL_RULES - rule_cnt;
-        rule.data.userdata = rule_cnt + 1;
-
-        if (rte_acl_add_rules(acl_ctx, &rule, 1) != 0)
-            RTE_LOG(ERR, ACL, "Failed to add ACL rule\n");
-        else
-            rule_cnt++;
-    }
-
-    fclose(f);
-    return rule_cnt;
-}
 int
 main(int argc, char **argv)
 {
@@ -883,102 +779,12 @@ main(int argc, char **argv)
 		return 1;
 	}
 	// Initialize ACL
-	struct rte_acl_config acl_config;
-	acl_ctx = rte_acl_create(&(struct rte_acl_param){
-		.name = "ACL Context",
-		.socket_id = rte_socket_id(),
-		.rule_size = RTE_ACL_RULE_SZ(RTE_DIM(ipv4_defs)),
-		.max_rule_num = MAX_ACL_RULES,
-	});
-	if (acl_ctx == NULL)
-		rte_exit(EXIT_FAILURE, "Failed to create ACL context\n");
+	if (init_acl() != 0) {
+		rte_exit(EXIT_FAILURE, "Failed to initialize ACL\n");
+	}
 
 	int num_rules = load_acl_rules("acl_rule");
 	printf("Loaded %d ACL rules\n", num_rules);
-
-	memset(&acl_config, 0, sizeof(acl_config));
-	acl_config.num_categories = 1;
-	acl_config.num_fields = RTE_DIM(ipv4_defs);
-	memcpy(&acl_config.defs, ipv4_defs, sizeof(ipv4_defs));
-	if (rte_acl_build(acl_ctx, &acl_config) != 0)
-		rte_exit(EXIT_FAILURE, "Failed to build ACL trie\n");
-
-	// Initialize blacklist
-	struct rte_acl_ctx * acx;
-struct rte_acl_config cfg;
-int rett;
-
-/* define a structure for the rule with up to 5 fields. */
-
-RTE_ACL_RULE_DEF(acl_ipv4_rule, RTE_DIM(ipv4_defs));
-
-/* AC context creation parameters. */
-
-struct rte_acl_param prm = {
-    .name = "ACL_example",
-    .socket_id = SOCKET_ID_ANY,
-    .rule_size = RTE_ACL_RULE_SZ(RTE_DIM(ipv4_defs)),
-
-    /* number of fields per rule. */
-
-    .max_rule_num = 8, /* maximum number of rules in the AC context. */
-};
-
-struct acl_ipv4_rule acl_rules[] = {
-
-    /* matches all packets traveling to 192.168.0.0/16, applies for categories: 0,1 */
-    {
-        .data = {.userdata = 1, .category_mask = 3, .priority = 1},
-
-        /* destination IPv4 */
-        .field[2] = {.value.u32 = RTE_IPV4(192,168,0,0),. mask_range.u32 = 16,},
-
-        /* source port */
-        .field[3] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
-
-        /* destination port */
-       .field[4] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
-    },
-
-    /* matches all packets traveling to 192.168.1.0/24, applies for categories: 0 */
-    {
-        .data = {.userdata = 2, .category_mask = 1, .priority = 2},
-
-        /* destination IPv4 */
-        .field[2] = {.value.u32 = RTE_IPV4(192,168,1,0),. mask_range.u32 = 24,},
-
-        /* source port */
-        .field[3] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
-
-        /* destination port */
-        .field[4] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
-    },
-
-    /* matches all packets traveling from 10.1.1.1, applies for categories: 1 */
-    {
-        .data = {.userdata = 3, .category_mask = 2, .priority = 3},
-
-        /* source IPv4 */
-        .field[1] = {.value.u32 = RTE_IPV4(10,1,1,1),. mask_range.u32 = 32,},
-
-        /* source port */
-        .field[3] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
-
-        /* destination port */
-        .field[4] = {.value.u16 = 0, .mask_range.u16 = 0xffff,},
-    },
-
-};
-
-
-/* create an empty AC context  */
-
-if ((acx = rte_acl_create(&prm)) == NULL) {
-
-    /* handle context create failure. */
-	rte_exit(EXIT_FAILURE, "Failed to create test ACL context\n");
-
-}
 
 	// Initialize Mongoose
 	struct mg_mgr mgr;
@@ -994,28 +800,6 @@ if ((acx = rte_acl_create(&prm)) == NULL) {
 	if (pthread_create(&mongoose_thread, NULL, run_mongoose, data) != 0) {
 		rte_exit(EXIT_FAILURE, "Failed to create Mongoose thread\n");
 	}
-/* add rules to the context */
-
-rett = rte_acl_add_rules(acx,(struct rte_acl_rule *) &acl_rules, RTE_DIM(acl_rules));
-if (rett != 0) {
-   /* handle error at adding ACL rules. */
-	rte_exit(EXIT_FAILURE, "Failed to add test ACL rules\n");
-}
-
-/* prepare AC build config. */
-
-cfg.num_categories = 2;
-cfg.num_fields = RTE_DIM(ipv4_defs);
-
-memcpy(cfg.defs, ipv4_defs, sizeof (ipv4_defs));
-
-/* build the runtime structures for added rules, with 2 categories. */
-
-rett = rte_acl_build(acx, &cfg);
-if (rett != 0) {
-   /* handle error at build runtime structures for ACL context. */
-	rte_exit(EXIT_FAILURE, "Failed to build test ACL trie\n");
-}
 	// if (init_blacklist_db() != 0) {
 	// 	close_blacklist_db();
 	// 	return 1;
@@ -1297,7 +1081,7 @@ if (rett != 0) {
 	close_rocksdb();
 
 	// Before exiting, free ACL context
-	rte_acl_free(acl_ctx);
+	cleanup_acl();
 
 
 	// Wait for the Mongoose thread to finish
