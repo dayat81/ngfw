@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "../acl/acl_handler.h"
 
 static struct mg_mgr mgr;
 static pthread_t mongoose_thread;
@@ -14,6 +15,8 @@ static void fn(struct mg_connection *c, int ev, void *ev_data, void *fn_data) {
         if (mg_match(hm->uri, mg_str("/api/stats"), NULL)) {
             mg_http_reply(c, 200, "Content-Type: application/json\r\n", 
                           "{\"temperature\":22,\"humidity\":60}\n");
+                          struct rte_acl_rule *rule = get_stored_rule(0);
+                          print_rule_fields(rule);
         } else {
             mg_http_reply(c, 404, "", "Not Found\n");
         }

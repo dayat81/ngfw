@@ -46,6 +46,10 @@ static struct rte_acl_field_def ipv4_defs[] = {
     },
 };
 
+#define MAX_RULES 1024
+struct rte_acl_rule stored_rules[MAX_RULES];
+int stored_rule_count = 0;
+
 int init_acl(void)
 {
     acl_ctx = rte_acl_create(&(struct rte_acl_param){
@@ -111,10 +115,15 @@ int load_acl_rules(const char *filename)
         rule.data.priority = MAX_ACL_RULES - rule_cnt;
         rule.data.userdata = rule_cnt + 1;
 
-        if (rte_acl_add_rules(acl_ctx, &rule, 1) != 0)
+        if (rte_acl_add_rules(acl_ctx, &rule, 1) != 0) {
             RTE_LOG(ERR, ACL, "Failed to add ACL rule\n");
-        else
+        } else {
             rule_cnt++;
+            if (stored_rule_count < MAX_RULES) {
+                stored_rules[stored_rule_count++] = rule;  // Store the rule
+            }
+            print_rule_fields(&rule);  // Print the rule fields
+        }
     }
 
     fclose(f);
@@ -132,10 +141,39 @@ int load_acl_rules(const char *filename)
     return rule_cnt;
 }
 
+// Function to retrieve a stored rule by index
+struct rte_acl_rule *get_stored_rule(int index) {
+    if (index < 0 || index >= stored_rule_count) {
+        return NULL;  // Invalid index
+    }
+    return &stored_rules[index];
+}
+
 void cleanup_acl(void)
 {
     if (acl_ctx != NULL) {
         rte_acl_free(acl_ctx);
         acl_ctx = NULL;
     }
+}
+
+void print_rule_fields(const struct rte_acl_rule *rule) {
+    uint32_t src_ip = rule->field[1].value.u32;
+    uint32_t dst_ip = rule->field[2].value.u32;
+
+    printf("Protocol: %u/%u\n", rule->field[0].value.u8, rule->field[0].mask_range.u8);
+    printf("Source IP: %u.%u.%u.%u/%u\n",
+           (src_ip >> 24) & 0xFF,
+           (src_ip >> 16) & 0xFF,
+           (src_ip >> 8) & 0xFF,
+           src_ip & 0xFF,
+           rule->field[1].mask_range.u32);
+    printf("Destination IP: %u.%u.%u.%u/%u\n",
+           (dst_ip >> 24) & 0xFF,
+           (dst_ip >> 16) & 0xFF,
+           (dst_ip >> 8) & 0xFF,
+           dst_ip & 0xFF,
+           rule->field[2].mask_range.u32);
+    printf("Source Port: %u-%u\n", rule->field[3].value.u16, rule->field[3].mask_range.u16);
+    printf("Destination Port: %u-%u\n", rule->field[4].value.u16, rule->field[4].mask_range.u16);
 }
