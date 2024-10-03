@@ -56,6 +56,7 @@
 #include <rte_acl.h>
 #include "mongoose.h"
 #include "acl/acl_handler.h"
+#include "rest/rest_api.h"
 
 volatile bool force_quit = false;
 
@@ -704,42 +705,6 @@ signal_handler(int signum)
 	}
 }
 
-// Define the structure to pass to the thread
-struct thread_data {
-    struct mg_mgr *mgr;
-    const char *listen_addr;
-};
-
-// Function to handle HTTP requests
-static void fn(struct mg_connection *c, int ev, void *ev_data, void *fn_data) {
-    if (ev == MG_EV_HTTP_MSG) {
-        struct mg_http_message *hm = (struct mg_http_message *) ev_data;
-        if (mg_match(hm->uri, mg_str("/api/stats"), NULL)) {
-            mg_http_reply(c, 200, "Content-Type: application/json\r\n", 
-                          "{\"temperature\":22,\"humidity\":60}\n");
-        } else {
-            mg_http_reply(c, 404, "", "Not Found\n");
-        }
-    }
-}
-
-// Thread function to run Mongoose event loop
-void *run_mongoose(void *arg) {
-    struct thread_data *data = (struct thread_data *)arg;
-    struct mg_mgr *mgr = data->mgr;
-    const char *listen_addr = data->listen_addr;
-
-    mg_http_listen(mgr, listen_addr, fn, NULL);
-
-    while (!force_quit) {
-        mg_mgr_poll(mgr, 1000);  // Poll every 1000ms
-    }
-
-    mg_mgr_free(mgr);
-    free(data);
-    return NULL;
-}
-
 int
 main(int argc, char **argv)
 {
@@ -786,24 +751,8 @@ main(int argc, char **argv)
 	int num_rules = load_acl_rules("acl_rule");
 	printf("Loaded %d ACL rules\n", num_rules);
 
-	// Initialize Mongoose
-	struct mg_mgr mgr;
-	mg_mgr_init(&mgr);
-
-	// Prepare thread data
-	struct thread_data *data = malloc(sizeof(struct thread_data));
-	data->mgr = &mgr;
-	data->listen_addr = "http://0.0.0.0:8000";
-
-	// Create and start the Mongoose thread
-	pthread_t mongoose_thread;
-	if (pthread_create(&mongoose_thread, NULL, run_mongoose, data) != 0) {
-		rte_exit(EXIT_FAILURE, "Failed to create Mongoose thread\n");
-	}
-	// if (init_blacklist_db() != 0) {
-	// 	close_blacklist_db();
-	// 	return 1;
-	// }
+	// Initialize REST API
+	init_rest_api("http://0.0.0.0:8000");
 
 	force_quit = false;
 	signal(SIGINT, signal_handler);
@@ -1070,6 +1019,9 @@ main(int argc, char **argv)
 
 	close_dns_log_file();
 
+	// Clean up the REST API
+	cleanup_rest_api();
+
 	// Clean up the blacklist
 	//close_blacklist_db();
 
@@ -1082,10 +1034,6 @@ main(int argc, char **argv)
 
 	// Before exiting, free ACL context
 	cleanup_acl();
-
-
-	// Wait for the Mongoose thread to finish
-	pthread_join(mongoose_thread, NULL);
 
 	return ret;
 }
