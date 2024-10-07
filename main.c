@@ -196,6 +196,8 @@ l2fwd_mac_updating(struct rte_mbuf *m, unsigned dest_portid)
 	rte_ether_addr_copy(&l2fwd_ports_eth_addr[dest_portid], &eth->src_addr);
 }
 
+extern int acl_mode;
+
 /* Simple forward. 8< */
 static void
 l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
@@ -231,19 +233,24 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         update_ip_traffic(dst_ip, pkt_len);
 
         // Perform ACL classification
-        uint32_t results[1] = {0};
-        const uint8_t *data[1] = {(uint8_t *)ip_hdr};
-		int ret = rte_acl_classify(acl_ctx, data, results, 1, 1);
-        if (ret < 0) {
-            RTE_LOG(ERR, L2FWD, "ACL classification failed\n");
-            //  rte_pktmbuf_free(m);
-            //  return;
-        }  else if (results[0] > 0) {
-        //     // Packet matched an ACL rule, you can take action here
-             //RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", results[0]);
-        //     // For example, you could drop the packet:
-            rte_pktmbuf_free(m);
-            return;
+        if (acl_ctx != NULL) {
+            uint32_t results[1] = {0};
+            const uint8_t *data[1] = {(uint8_t *)ip_hdr};
+            int ret = rte_acl_classify(acl_ctx, data, results, 1, 1);
+            //printf("ACL classification result: %d, ACL mode: %s\n", results[0], acl_mode == 0 ? "Blacklist" : "Whitelist");
+            if (ret < 0) {
+                RTE_LOG(ERR, L2FWD, "ACL classification failed\n");
+            } if (acl_mode == 0) { // Blacklist mode
+                if (results[0] > 0) {
+                    rte_pktmbuf_free(m);
+                    return;
+                }
+            } else { // Whitelist mode
+                if (results[0] == 0) {
+                    rte_pktmbuf_free(m);
+                    return;
+                }
+            }
         }
     }
 
@@ -377,11 +384,10 @@ l2fwd_usage(const char *prgname)
 	       "  -q NQ: number of queue (=ports) per lcore (default is 1)\n"
 	       "  -T PERIOD: statistics will be refreshed each PERIOD seconds (0 to disable, 10 default, 86400 maximum)\n"
 	       "  --no-mac-updating: Disable MAC addresses updating (enabled by default)\n"
-	       "      When enabled:\n"
-	       "       - The source MAC address is replaced by the TX port MAC address\n"
-	       "       - The destination MAC address is replaced by 02:00:00:00:00:TX_PORT_ID\n"
 	       "  --portmap: Configure forwarding port pair mapping\n"
-	       "	      Default: alternate port pairs\n\n",
+	       "  -b FILE, --blacklist=FILE: Use FILE as ACL blacklist rules\n"
+	       "  -w FILE, --whitelist=FILE: Use FILE as ACL whitelist rules\n"
+	       "      Default: alternate port pairs\n\n",
 	       prgname);
 }
 
@@ -493,10 +499,14 @@ static const char short_options[] =
 	"P"   /* promiscuous */
 	"q:"  /* number of queues */
 	"T:"  /* timer period */
+	"b:"  /* blacklist file */
+	"w:"  /* whitelist file */
 	;
 
 #define CMD_LINE_OPT_NO_MAC_UPDATING "no-mac-updating"
 #define CMD_LINE_OPT_PORTMAP_CONFIG "portmap"
+#define CMD_LINE_OPT_BLACKLIST "blacklist"
+#define CMD_LINE_OPT_WHITELIST "whitelist"
 
 enum {
 	/* long options mapped to a short option */
@@ -505,14 +515,22 @@ enum {
 	 * conflict with short options */
 	CMD_LINE_OPT_NO_MAC_UPDATING_NUM = 256,
 	CMD_LINE_OPT_PORTMAP_NUM,
+	CMD_LINE_OPT_BLACKLIST_NUM,
+	CMD_LINE_OPT_WHITELIST_NUM,
 };
 
 static const struct option lgopts[] = {
 	{ CMD_LINE_OPT_NO_MAC_UPDATING, no_argument, 0,
 		CMD_LINE_OPT_NO_MAC_UPDATING_NUM},
 	{ CMD_LINE_OPT_PORTMAP_CONFIG, 1, 0, CMD_LINE_OPT_PORTMAP_NUM},
+	{ CMD_LINE_OPT_BLACKLIST, required_argument, 0, CMD_LINE_OPT_BLACKLIST_NUM },
+	{ CMD_LINE_OPT_WHITELIST, required_argument, 0, CMD_LINE_OPT_WHITELIST_NUM },
 	{NULL, 0, 0, 0}
 };
+
+static char *blacklist_file = NULL;
+static char *whitelist_file = NULL;
+int acl_mode = 0; // 0 for blacklist, 1 for whitelist
 
 /* Parse the argument given in the command line of the application */
 static int
@@ -576,6 +594,26 @@ l2fwd_parse_args(int argc, char **argv)
 
 		case CMD_LINE_OPT_NO_MAC_UPDATING_NUM:
 			mac_updating = 0;
+			break;
+
+		case 'b':
+			blacklist_file = optarg;
+			acl_mode = 0; // Set to blacklist mode
+			break;
+
+		case 'w':
+			whitelist_file = optarg;
+			acl_mode = 1; // Set to whitelist mode
+			break;
+
+		case CMD_LINE_OPT_BLACKLIST_NUM:
+			blacklist_file = optarg;
+			acl_mode = 0; // Set to blacklist mode
+			break;
+
+		case CMD_LINE_OPT_WHITELIST_NUM:
+			whitelist_file = optarg;
+			acl_mode = 1; // Set to whitelist mode
 			break;
 
 		default:
@@ -708,6 +746,8 @@ signal_handler(int signum)
 	}
 }
 
+extern int acl_mode;
+
 int
 main(int argc, char **argv)
 {
@@ -751,8 +791,25 @@ main(int argc, char **argv)
 		rte_exit(EXIT_FAILURE, "Failed to initialize ACL\n");
 	}
 
-	int num_rules = load_acl_rules("acl_rule");
-	printf("Loaded %d ACL rules\n", num_rules);
+	/* parse application arguments (after the EAL ones) */
+	ret = l2fwd_parse_args(argc, argv);
+	if (ret < 0)
+		rte_exit(EXIT_FAILURE, "Invalid L2FWD arguments\n");
+
+	const char *acl_rule_file = "acl_blacklist"; // Default to blacklist
+	if (blacklist_file) {
+		acl_rule_file = blacklist_file;
+		acl_mode = 0;
+	} else if (whitelist_file) {
+		acl_rule_file = whitelist_file;
+		acl_mode = 1;
+	}
+
+	int num_rules = load_acl_rules(acl_rule_file);
+	if (num_rules < 0) {
+		rte_exit(EXIT_FAILURE, "Failed to load ACL rules\n");
+	}
+	printf("Loaded %d ACL rules from %s\n", num_rules, acl_rule_file);
 
 	// Initialize REST API
 	init_rest_api("http://0.0.0.0:8000");
@@ -760,12 +817,6 @@ main(int argc, char **argv)
 	force_quit = false;
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
-
-	/* parse application arguments (after the EAL ones) */
-	ret = l2fwd_parse_args(argc, argv);
-	if (ret < 0)
-		rte_exit(EXIT_FAILURE, "Invalid L2FWD arguments\n");
-	/* >8 End of init EAL. */
 
 	printf("MAC updating %s\n", mac_updating ? "enabled" : "disabled");
 
