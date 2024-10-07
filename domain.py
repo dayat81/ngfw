@@ -25,7 +25,7 @@ def get_unique_domains():
 # print(unique_domains)
 
 def get_ip_addresses_for_domain(domain):
-    ip_addresses = []
+    ip_addresses = set()  # Using a set to store unique IP addresses
     
     try:
         with open('dns_mappings.log', 'r') as log_file:
@@ -36,13 +36,13 @@ def get_ip_addresses_for_domain(domain):
                     log_domain = match.group(1)
                     ip = match.group(2).strip()
                     if log_domain == domain:
-                        ip_addresses.append(ip)
+                        ip_addresses.add(ip)  # Add to set instead of list
     except FileNotFoundError:
         print("Error: dns_mappings.log file not found.")
     except IOError:
         print("Error: Unable to read dns_mappings.log file.")
     
-    return ip_addresses
+    return list(ip_addresses)  # Convert set back to list before returning
 
 # Example usage:
 # domain = "example.com"
@@ -63,38 +63,15 @@ def get_ip_addresses_for_domain_containing(substring):
                     ip = match.group(2).strip()
                     if substring.lower() in domain.lower():
                         if domain not in results:
-                            results[domain] = []
-                        results[domain].append(ip)
+                            results[domain] = set()  # Use a set instead of a list
+                        results[domain].add(ip)  # Add IP to the set
     except FileNotFoundError:
         print("Error: dns_mappings.log file not found.")
     except IOError:
         print("Error: Unable to read dns_mappings.log file.")
     
-    return results
-
-def blacklist_ip_addresses_for_domain(domain):
-    ip_addresses = get_ip_addresses_for_domain(domain)
-    
-    if not ip_addresses:
-        print(f"No IP addresses found for domain: {domain}")
-        return
-    
-    for ip in ip_addresses:
-        result = subprocess.run(['python3', 'cli.py', 'blacklist', '--ip ', ip], capture_output=True, text=True)
-        print(f"Blacklisting {ip}: {result.stdout.strip()}")
-
-def blacklist_domains_containing(substring):
-    results = get_ip_addresses_for_domain_containing(substring)
-    
-    if not results:
-        print(f"No domains found containing '{substring}'")
-        return
-    
-    for domain, ip_addresses in results.items():
-        print(f"Blacklisting IPs for domain: {domain}")
-        for ip in ip_addresses:
-            result = subprocess.run(['python3', 'cli.py', 'blacklist', '--ip', ip], capture_output=True, text=True)
-            print(f"  Blacklisting {ip}: {result.stdout.strip()}")
+    # Convert sets back to lists before returning
+    return {domain: list(ips) for domain, ips in results.items()}
 
 def block_ip_addresses_for_domain(domain):
     ip_addresses = get_ip_addresses_for_domain(domain)
@@ -107,7 +84,7 @@ def block_ip_addresses_for_domain(domain):
         add_block_rule_pair(ip)
 
 def add_block_rule_pair(ip):
-    acl_rule_path = 'acl_rule'
+    acl_rule_path = 'acl_blacklist'
     rule_pair = [
         f"@0.0.0.0/0\t{ip}/32\t0 : 65535\t0 : 65535 0/0\n",
         f"@{ip}/32\t0.0.0.0/0\t0 : 65535\t0 : 65535 0/0\n"
@@ -134,6 +111,44 @@ def block_specific_ip(ip):
     add_block_rule_pair(ip)
     print(f"Blocked IP: {ip}")
 
+def unblock_ip_addresses_for_domain(domain):
+    ip_addresses = get_ip_addresses_for_domain(domain)
+    
+    if not ip_addresses:
+        print(f"No IP addresses found for domain: {domain}")
+        return
+    
+    for ip in ip_addresses:
+        add_unblock_rule_pair(ip)
+
+def add_unblock_rule_pair(ip):
+    acl_rule_path = 'acl_whitelist'
+    rule_pair = [
+        f"@0.0.0.0/0\t{ip}/32\t0 : 65535\t0 : 65535 0/0\n",
+        f"@{ip}/32\t0.0.0.0/0\t0 : 65535\t0 : 65535 0/0\n"
+    ]
+    
+    try:
+        with open(acl_rule_path, 'r+') as acl_file:
+            existing_rules = acl_file.readlines()
+            new_rules = []
+            for rule in rule_pair:
+                if rule not in existing_rules:
+                    new_rules.append(rule)
+            
+            if new_rules:
+                acl_file.seek(0, 2)  # Move to the end of the file
+                acl_file.writelines(new_rules)
+                print(f"Unblocked {ip}: New rule{'s' if len(new_rules) > 1 else ''} added successfully")
+            else:
+                print(f"Skipped {ip}: Rules already exist")
+    except IOError:
+        print(f"Error: Unable to read or write to {acl_rule_path} file.")
+
+def unblock_specific_ip(ip):
+    add_unblock_rule_pair(ip)
+    print(f"Unblocked IP: {ip}")
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python domain.py <command> [argument]")
@@ -141,10 +156,10 @@ def main():
         print("- get_unique_domains")
         print("- get_ip_addresses_for_domain <domain>")
         print("- get_ip_addresses_for_domain_containing <substring>")
-        print("- blacklist_domain <domain>")
-        print("- blacklist_domains_containing <substring>")
         print("- block_domain <domain>")
         print("- block_ip <ip_address>")
+        print("- unblock_domain <domain>")
+        print("- unblock_ip <ip_address>")
         return
 
     command = sys.argv[1]
@@ -177,18 +192,6 @@ def main():
                     print(f"  - {ip}")
         else:
             print(f"No domains found containing '{substring}'")
-    elif command == "blacklist_domain":
-        if len(sys.argv) < 3:
-            print("Error: Please provide a domain name to blacklist.")
-            return
-        domain = sys.argv[2]
-        blacklist_ip_addresses_for_domain(domain)
-    elif command == "blacklist_domains_containing":
-        if len(sys.argv) < 3:
-            print("Error: Please provide a substring to search for in domain names.")
-            return
-        substring = sys.argv[2]
-        blacklist_domains_containing(substring)
     elif command == "block_domain":
         if len(sys.argv) < 3:
             print("Error: Please provide a domain name to block.")
@@ -201,6 +204,18 @@ def main():
             return
         ip = sys.argv[2]
         block_specific_ip(ip)
+    elif command == "unblock_domain":
+        if len(sys.argv) < 3:
+            print("Error: Please provide a domain name to unblock.")
+            return
+        domain = sys.argv[2]
+        unblock_ip_addresses_for_domain(domain)
+    elif command == "unblock_ip":
+        if len(sys.argv) < 3:
+            print("Error: Please provide an IP address to unblock.")
+            return
+        ip = sys.argv[2]
+        unblock_specific_ip(ip)
     else:
         print(f"Error: Unknown command '{command}'")
 
