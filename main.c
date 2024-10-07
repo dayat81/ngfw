@@ -233,14 +233,17 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
         // Perform ACL classification
         uint32_t results[1] = {0};
         const uint8_t *data[1] = {(uint8_t *)ip_hdr};
-        if (rte_acl_classify(acl_ctx, data, results, 1, 1) < 0) {
+		int ret = rte_acl_classify(acl_ctx, data, results, 1, 1);
+        if (ret < 0) {
             RTE_LOG(ERR, L2FWD, "ACL classification failed\n");
-        } else {
-            // Packet matched an ACL rule, you can take action here
-            RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", results[0]);
-            // For example, you could drop the packet:
-            // rte_pktmbuf_free(m);
-            // return;
+            //  rte_pktmbuf_free(m);
+            //  return;
+        }  else if (results[0] == 0) {
+        //     // Packet matched an ACL rule, you can take action here
+             //RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", results[0]);
+        //     // For example, you could drop the packet:
+            rte_pktmbuf_free(m);
+            return;
         }
     }
 
