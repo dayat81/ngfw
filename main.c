@@ -238,7 +238,7 @@ l2fwd_simple_forward(struct rte_mbuf *m, unsigned portid)
             RTE_LOG(ERR, L2FWD, "ACL classification failed\n");
             //  rte_pktmbuf_free(m);
             //  return;
-        }  else if (results[0] == 0) {
+        }  else if (results[0] > 0) {
         //     // Packet matched an ACL rule, you can take action here
              //RTE_LOG(INFO, L2FWD, "Packet matched ACL rule %u\n", results[0]);
         //     // For example, you could drop the packet:
