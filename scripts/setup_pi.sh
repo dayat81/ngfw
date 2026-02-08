@@ -7,7 +7,10 @@ echo "Setting up Raspberry Pi environment..."
 
 # Update and install dependencies
 sudo apt-get update
-sudo apt-get install -y libdpdk-dev librocksdb-dev python3-pip python3-requests build-essential pkg-config libnuma-dev
+sudo apt-get install -y libdpdk-dev librocksdb-dev python3-pip python3-requests build-essential pkg-config libnuma-dev driverctl
+
+# Load standard drivers
+sudo modprobe vfio-pci
 
 # Install Mongoose dependencies if not present (mongoose.c/h should be part of repo, but if not we can curl it)
 # We will download it here just in case, or ensure it's in the repo
