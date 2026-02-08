@@ -13,4 +13,7 @@ void cleanup_acl(void);
 struct rte_acl_rule *get_stored_rule(int index);
 void print_rule_fields(const struct rte_acl_rule *rule);
 
+int add_acl_rule_from_string(const char *rule_str);
+int get_stored_rules_count(void);
+
 #endif // ACL_HANDLER_H

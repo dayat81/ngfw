@@ -1,43 +1,54 @@
-import telnetlib
+import requests
 import sys
 import time
 import argparse
-import numpy as np
+import json
 
-def send_command(command):
+BASE_URL = "http://localhost:8000/api"
+
+def send_command(endpoint, method="GET", data=None):
     try:
-        # Connect to localhost on port 8080
-        tn = telnetlib.Telnet('localhost', 8080)
+        url = f"{BASE_URL}/{endpoint}"
+        if method == "GET":
+            response = requests.get(url)
+        elif method == "POST":
+            response = requests.post(url, json=data)
+        else:
+            return f"Error: Unsupported method {method}"
         
-        # Send the command
-        tn.write(command.encode('ascii') + b"\n")
-        
-        # Read the response
-        response = tn.read_all().decode('ascii')
-        
-        # Close the connection
-        tn.close()
-        
-        return response
-    except ConnectionRefusedError:
-        return "Error: Connection refused. Make sure the server is running."
-    except Exception as e:
-        return f"Error: {str(e)}"
+        if response.status_code == 200:
+            try:
+                return response.json()
+            except json.JSONDecodeError:
+                return response.text
+        else:
+            return f"Error: {response.status_code} - {response.text}"
+    except requests.exceptions.RequestException as e:
+        return f"Error: Connection refused. Make sure the server is running on port 8000. Details: {str(e)}"
 
 def monitor_delta_icmp(interval=5):
     previous_icmp = None
     while True:
         current_icmp = get_icmp_data()
+        if isinstance(current_icmp, str) and current_icmp.startswith("Error"):
+             print(current_icmp)
+             time.sleep(interval)
+             continue
+
         delta_icmp = {}
         
+        # Convert list of dicts to dict id:packets
+        current_map = {entry['ip']: entry['packets'] for entry in current_icmp}
+
         if previous_icmp is not None:
-            for ip, count in current_icmp.items():
-                delta = count - previous_icmp.get(ip, 0)
+            for ip, count in current_map.items():
+                prev_count = previous_icmp.get(ip, 0)
+                delta = count - prev_count
                 if delta > 0:
                     delta_icmp[ip] = delta / interval
                     if delta > 100:
                         print(f"Blacklisting {ip} due to high ICMP traffic (delta: {delta})")
-                        send_command(f"blacklist {ip}")
+                        print(send_command("blacklist", "POST", {"ip": ip}))
             
             if delta_icmp:
                 print(f"Delta ICMP traffic in the last {interval} seconds (only positive changes):")
@@ -48,23 +59,11 @@ def monitor_delta_icmp(interval=5):
         else:
             print("First run: Collecting initial ICMP data...")
         
-        previous_icmp = current_icmp
+        previous_icmp = current_map
         time.sleep(interval)
 
 def get_icmp_data():
-    response = send_command("get_icmp_data")
-    icmp_data = {}
-    for line in response.split('\n'):
-        if ':' in line:
-            ip, count = line.split(':', 1)
-            ip = ip.strip()
-            try:
-                # Extract the number before "packets" and convert to int
-                count = int(count.strip().split()[0])
-                icmp_data[ip] = count
-            except (ValueError, IndexError):
-                print(f"Warning: Could not parse line: {line}")
-    return icmp_data
+    return send_command("icmp_data")
 
 def main():
     parser = argparse.ArgumentParser(description="Traffic monitoring CLI")
@@ -72,42 +71,36 @@ def main():
         "monitor_delta_icmp",
         "get_icmp_data",
         "blacklist",
-        "unblacklist",
+        "whitelist", # Changed unblacklist to whitelist
         "check_blacklist",
-        "show_blacklist",
-        "clear_blacklist"
+        "stats"
     ])
-    parser.add_argument("--interval", type=int, default=5, help="Monitoring interval in seconds (default: 15)")
-    parser.add_argument("--ip", help="IP address for blacklisting")
+    parser.add_argument("--interval", type=int, default=5, help="Monitoring interval in seconds (default: 5)")
+    parser.add_argument("--ip", help="IP address for blacklisting/whitelisting")
     args = parser.parse_args()
 
     if args.command == "monitor_delta_icmp":
         monitor_delta_icmp(args.interval)
-        print(get_blocked_traffic())
     elif args.command == "get_icmp_data":
-        print(get_icmp_data())
+        print(json.dumps(get_icmp_data(), indent=2))
     elif args.command == "blacklist":
         if not args.ip:
             parser.error("The blacklist command requires an --ip argument")
-        response = send_command(f"blacklist {args.ip}")
+        response = send_command("blacklist", "POST", {"ip": args.ip})
         print(response)
-    elif args.command == "unblacklist":
+    elif args.command == "whitelist":
         if not args.ip:
-            parser.error("The unblacklist command requires an --ip argument")
-        response = send_command(f"unblacklist {args.ip}")
+            parser.error("The whitelist command requires an --ip argument")
+        response = send_command("whitelist", "POST", {"ip": args.ip})
         print(response)
     elif args.command == "check_blacklist":
-        response = send_command("check_blacklist")
+        response = send_command("blacklist")
         print(response)
-    elif args.command == "show_blacklist":
-        response = send_command("show_blacklist")
-        print(response)
-    elif args.command == "clear_blacklist":
-        response = send_command("clear_blacklist")
+    elif args.command == "stats":
+        response = send_command("stats")
         print(response)
     else:
-        response = send_command(args.command)
-        print(response)
+        print(f"Unknown command: {args.command}")
 
 if __name__ == "__main__":
     main()

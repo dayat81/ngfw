@@ -177,3 +177,65 @@ void print_rule_fields(const struct rte_acl_rule *rule) {
     printf("Source Port: %u-%u\n", rule->field[3].value.u16, rule->field[3].mask_range.u16);
     printf("Destination Port: %u-%u\n", rule->field[4].value.u16, rule->field[4].mask_range.u16);
 }
+
+int add_acl_rule_from_string(const char *rule_str)
+{
+    struct rte_acl_rule rule;
+    struct rte_acl_config acl_config;
+    memset(&rule, 0, sizeof(rule));
+
+    uint8_t src_ip[4], dst_ip[4];
+    uint8_t src_mask, dst_mask, proto, proto_mask;
+    uint16_t sport_low, sport_high, dport_low, dport_high;
+
+    if (sscanf(rule_str, "@%hhu.%hhu.%hhu.%hhu/%hhu %hhu.%hhu.%hhu.%hhu/%hhu %hu : %hu %hu : %hu %hhu/%hhu",
+                &src_ip[0], &src_ip[1], &src_ip[2], &src_ip[3], &src_mask,
+                &dst_ip[0], &dst_ip[1], &dst_ip[2], &dst_ip[3], &dst_mask,
+                &sport_low, &sport_high, &dport_low, &dport_high,
+                &proto, &proto_mask) != 16) {
+        RTE_LOG(ERR, ACL, "Failed to parse ACL rule: %s\n", rule_str);
+        return -1;
+    }
+
+    rule.field[0].value.u8 = proto;
+    rule.field[0].mask_range.u8 = proto_mask;
+    rule.field[1].value.u32 = RTE_IPV4(src_ip[0], src_ip[1], src_ip[2], src_ip[3]);
+    rule.field[1].mask_range.u32 = src_mask;
+    rule.field[2].value.u32 = RTE_IPV4(dst_ip[0], dst_ip[1], dst_ip[2], dst_ip[3]);
+    rule.field[2].mask_range.u32 = dst_mask;
+    rule.field[3].value.u16 = sport_low;
+    rule.field[3].mask_range.u16 = sport_high;
+    rule.field[4].value.u16 = dport_low;
+    rule.field[4].mask_range.u16 = dport_high;
+
+    rule.data.category_mask = 1;
+    rule.data.priority = MAX_ACL_RULES - stored_rule_count;
+    rule.data.userdata = stored_rule_count + 1;
+
+    if (rte_acl_add_rules(acl_ctx, &rule, 1) != 0) {
+        RTE_LOG(ERR, ACL, "Failed to add ACL rule\n");
+        return -1;
+    }
+
+    if (stored_rule_count < MAX_RULES) {
+        stored_rules[stored_rule_count++] = rule;
+    }
+
+    memset(&acl_config, 0, sizeof(acl_config));
+    acl_config.num_categories = 1;
+    acl_config.num_fields = RTE_DIM(ipv4_defs);
+    memcpy(&acl_config.defs, ipv4_defs, sizeof(ipv4_defs));
+    if (rte_acl_build(acl_ctx, &acl_config) != 0) {
+        RTE_LOG(ERR, ACL, "Failed to build ACL trie\n");
+        return -1;
+    }
+    
+    // Print the added rule for verification/logging
+    print_rule_fields(&rule);
+
+    return 0;
+}
+
+int get_stored_rules_count(void) {
+    return stored_rule_count;
+}
